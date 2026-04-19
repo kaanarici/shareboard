@@ -1,0 +1,27 @@
+/* Tweet embed — force light theme, remove all gaps/borders */
+.tweet-embed-container {
+  color-scheme: light;
+}
+
+.tweet-embed-container [data-theme] {
+  --tweet-container-margin: 0 !important;
+}
+
+.tweet-embed-container > div {
+  margin: 0 !important;
+}
+
+.tweet-embed-container article {
+  margin: 0 !important;
+  max-width: none !important;
+}
+
+/* react-tweet applies `.root` (border, border-radius, margin) to the .react-tweet-theme
+   element itself — NOT a child. Target it directly.
+   min-height: 100% fills the h-full scroller so no white sliver appears at the bottom. */
+.tweet-embed-container .react-tweet-theme {
+  border: none !important;
+  border-radius: 0 !important;
+  margin: 0 !important;
+  min-height: 100% !important;
+}

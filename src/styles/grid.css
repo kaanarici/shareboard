@@ -1,0 +1,75 @@
+/* react-grid-layout overrides */
+
+/*
+ * Dragged / resizing tile stays fully visible and readable. Users need to see
+ * what they're moving — hiding the card (even just its text) makes drag feel
+ * broken. We just lift it with a shadow and bump z-index so it sits above
+ * neighbouring tiles during the operation.
+ */
+.react-grid-item.react-draggable-dragging,
+.react-grid-item.resizing {
+  z-index: 100 !important;
+  cursor: grabbing;
+}
+.react-grid-item.react-draggable-dragging {
+  box-shadow:
+    0 20px 40px -12px rgba(0, 0, 0, 0.18),
+    0 2px 6px rgba(0, 0, 0, 0.06) !important;
+}
+
+/*
+ * Placeholder is a quiet landing hint — a thin dashed outline of where the
+ * tile will drop. Intentionally low contrast so the snap-to-cell jumps (which
+ * are driven by the item's top-left, not the cursor, inside react-grid-layout)
+ * aren't visually aggressive. The user's eye follows the card they're holding;
+ * this is just a soft confirmation of the grid slot.
+ */
+.react-grid-item.react-grid-placeholder {
+  background: transparent !important;
+  border: 1px dashed rgba(0, 0, 0, 0.18) !important;
+  border-radius: 24px !important;
+  opacity: 1 !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  transition: transform 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* Prevent text selection during drag/resize */
+.react-grid-item.react-draggable-dragging,
+.react-grid-item.resizing {
+  user-select: none !important;
+}
+body.grid-interacting {
+  user-select: none !important;
+}
+
+/*
+ * Freeze tile content during drag/resize so editors (Tiptap), scroll
+ * containers, and embedded iframes don't visually reflow. Without this,
+ * contenteditable regions re-position the caret and Tiptap recomputes
+ * selections every frame as the tile's transform changes, making text
+ * appear to "scroll and spin" inside small note cards. We turn off pointer
+ * events on editors and clamp any overflow-auto children to hidden.
+ */
+body.grid-interacting .react-grid-item [contenteditable],
+body.grid-interacting .react-grid-item .ProseMirror,
+body.grid-interacting .react-grid-item .tiptap {
+  pointer-events: none !important;
+  caret-color: transparent !important;
+}
+body.grid-interacting .react-grid-item .overflow-auto,
+body.grid-interacting .react-grid-item .overflow-y-auto,
+body.grid-interacting .react-grid-item .overflow-scroll,
+body.grid-interacting .react-grid-item .overflow-y-scroll {
+  overflow: hidden !important;
+}
+
+/* Resize handles — invisible, only cursor changes */
+.react-grid-item > .react-resizable-handle {
+  z-index: 15 !important;
+  background: transparent !important;
+}
+
+.react-grid-item > .react-resizable-handle::after {
+  display: none !important;
+}

@@ -1,0 +1,52 @@
+{
+  "name": "ideator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.3.11",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "start": "vite preview",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@base-ui/react": "^1.4.0",
+    "@fontsource-variable/geist": "^5.2.8",
+    "@fontsource-variable/geist-mono": "^5.2.7",
+    "@tanstack/react-router": "^1.168.21",
+    "@tanstack/react-start": "^1.167.39",
+    "@tiptap/extension-placeholder": "^3.22.3",
+    "@tiptap/react": "^3.22.3",
+    "@tiptap/starter-kit": "^3.22.3",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.8.0",
+    "motion": "^12.38.0",
+    "nanoid": "^5.1.7",
+    "openai": "^6.34.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "react-grid-layout": "^2.2.3",
+    "react-markdown": "^10.1.0",
+    "react-tweet": "^3.3.0",
+    "remark-gfm": "^4.0.1",
+    "shadcn": "^4.2.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.5.0",
+    "tw-animate-css": "^1.4.0",
+    "youtube-transcript": "^1.3.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.2.2",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/react-grid-layout": "^2.1.0",
+    "@vitejs/plugin-react": "^6.0.1",
+    "eslint": "^9",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vite": "^8.0.8"
+  }
+}

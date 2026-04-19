@@ -1,0 +1,20 @@
+/* Sonner toaster — prevent text wrapping, auto-size */
+[data-sonner-toaster] {
+  --width: 400px !important;
+}
+[data-sonner-toaster] [data-sonner-toast] {
+  width: auto !important;
+  min-width: 0 !important;
+  white-space: nowrap !important;
+}
+
+/* Duplicate toast shake — notify() applies this animation via inline style on
+   the inner [data-content] node (sonner rewrites the toast root's className,
+   so we target the child it leaves alone). Translate-only so neighbors don't
+   reflow. */
+@keyframes sb-toast-shake {
+  10%, 90% { transform: translate3d(-1px, 0, 0); }
+  20%, 80% { transform: translate3d(2px, 0, 0); }
+  30%, 50%, 70% { transform: translate3d(-3px, 0, 0); }
+  40%, 60% { transform: translate3d(3px, 0, 0); }
+}

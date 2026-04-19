@@ -1,0 +1,353 @@
+/* ─── Bottom toolbar — page nav + actions ───────────────────────────── */
+
+.board-toolbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 1.25rem;
+  z-index: 50;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0 1.25rem;
+  pointer-events: none; /* wrapper is layout only */
+  transition: opacity 0.2s ease;
+}
+.board-toolbar > * {
+  pointer-events: auto;
+}
+.board-toolbar[data-locked] {
+  opacity: 0.5;
+  pointer-events: none;
+}
+.board-toolbar[data-locked] > * {
+  pointer-events: none;
+}
+
+.board-toolbar-left {
+  justify-self: start;
+}
+.board-toolbar-center {
+  justify-self: center;
+}
+.board-toolbar-right {
+  justify-self: end;
+}
+
+/* ─── Radial action fan (spring-out menu from the + pill) ─────────────── */
+
+.action-fan {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.action-fan-item {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  padding: 0;
+  border-radius: 999px;
+  background-color: rgba(255, 255, 255, 0.95);
+  color: var(--foreground);
+  cursor: pointer;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.05),
+    0 8px 22px -6px rgba(0, 0, 0, 0.16);
+  z-index: 1;
+  transition: background-color 0.12s ease;
+}
+
+.action-fan-item:hover:not(:disabled) {
+  background-color: #ffffff;
+}
+
+.action-fan-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Hover tooltip — white pill, placed radially so neighboring items don't
+ * collide. `data-side` lets us keep the arrow direction per-side if needed. */
+.action-fan-label {
+  position: absolute;
+  pointer-events: none;
+  white-space: nowrap;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background-color: #ffffff;
+  color: var(--foreground);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    0 8px 22px -6px rgba(0, 0, 0, 0.18);
+  z-index: 2;
+}
+
+.action-fan-trigger-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  will-change: transform;
+}
+
+/* Subtle press feedback on the trigger when the fan is open */
+.board-toolbar-add[data-fan-open] {
+  background-color: #ffffff;
+}
+
+/* ─── Plus button — circular, with a real pressed feel ──────────────── */
+
+.board-toolbar-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 999px;
+  background-color: rgba(255, 255, 255, 0.9);
+  color: var(--foreground);
+  border: 0;
+  cursor: pointer;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  transition: background-color 0.2s ease, transform 0.18s ease,
+    box-shadow 0.2s ease;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 4px 12px -4px rgba(0, 0, 0, 0.06);
+}
+
+.board-toolbar-add:hover {
+  background-color: rgba(255, 255, 255, 1);
+  transform: translateY(-1px);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.05),
+    0 6px 14px -4px rgba(0, 0, 0, 0.08);
+}
+
+.board-toolbar-add:active {
+  transform: translateY(0) scale(0.96);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 2px 6px -3px rgba(0, 0, 0, 0.08);
+}
+
+.board-toolbar-add[aria-expanded="true"] {
+  background-color: rgba(255, 255, 255, 1);
+}
+
+.board-toolbar-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  background-color: rgba(255, 255, 255, 0.9);
+  border: 0;
+  cursor: pointer;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  transition: background-color 0.2s ease, transform 0.18s ease,
+    box-shadow 0.2s ease;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 4px 12px -4px rgba(0, 0, 0, 0.06);
+}
+
+.board-toolbar-icon:hover {
+  background-color: rgba(255, 255, 255, 1);
+  transform: translateY(-1px);
+}
+
+.board-toolbar-icon:active {
+  transform: translateY(0) scale(0.96);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 2px 6px -3px rgba(0, 0, 0, 0.08);
+}
+
+/* ─── Popovers — transparent shell, inner cards stand on their own ────── */
+
+.board-popover {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  background-color: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+.board-popover--menu {
+  width: 15rem;
+}
+
+.board-popover--settings {
+  width: min(100vw - 2rem, 22rem);
+}
+
+.board-popover-section {
+  display: flex;
+  flex-direction: column;
+  padding: 0.375rem;
+  border-radius: 0.875rem;
+  background-color: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 12px 32px -10px rgba(0, 0, 0, 0.16);
+}
+
+/* Popover tiles mirror the setup cards exactly — debossed chrome, no ambient lift. */
+.board-popover .setup-dialog-tile {
+  box-shadow:
+    inset 0 2px 5px rgba(0, 0, 0, 0.06),
+    inset 0 1px 2px rgba(0, 0, 0, 0.04);
+  border-radius: 0.875rem;
+}
+
+.board-popover-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.625rem 0.75rem;
+  border: 0;
+  background: transparent;
+  border-radius: 0.625rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--foreground);
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+  text-align: left;
+}
+
+.board-popover-item:hover:not(:disabled) {
+  background-color: rgba(0, 0, 0, 0.04);
+}
+
+.board-popover-item:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.board-popover-link {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  margin-top: -0.125rem;
+  border: 0;
+  background: transparent;
+  border-radius: 0.5rem;
+  font-size: 0.75rem;
+  color: rgba(10, 10, 10, 0.55);
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+  text-align: left;
+}
+
+.board-popover-link:hover:not(:disabled) {
+  background-color: rgba(0, 0, 0, 0.04);
+  color: var(--destructive);
+}
+
+.board-popover-link:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ─── Segmented nav pill — [◀ | X / Y | ▶] ───────────────────────────── */
+
+.board-nav-pill {
+  display: inline-flex;
+  align-items: stretch;
+  height: 44px;
+  background-color: rgba(255, 255, 255, 0.9);
+  border-radius: 999px;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 4px 12px -4px rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+}
+
+.board-nav-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 0 16px;
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.board-nav-pill-btn:hover:not(:disabled) {
+  background-color: rgba(0, 0, 0, 0.045);
+}
+
+.board-nav-pill-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.board-nav-pill-divider {
+  align-self: stretch;
+  width: 1px;
+  background-color: rgba(0, 0, 0, 0.1);
+}
+
+.board-nav-pill-count {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 14px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: rgba(10, 10, 10, 0.65);
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+/* ─── Carousel viewport + sliding track ──────────────────────────────── */
+
+.board-carousel-viewport {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.board-carousel-track {
+  display: flex;
+  height: 100%;
+  transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
+}
+
+.board-carousel-slide {
+  flex: none;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
