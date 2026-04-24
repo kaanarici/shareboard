@@ -1,6 +1,5 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMountEffect } from "@/lib/use-mount-effect";
-import { useNavigate, useSearch } from "@tanstack/react-router";
 import type { Canvas as CanvasType, CanvasItem, GridLayouts } from "@/lib/types";
 import { BOARD_SUMMARY_ITEM_ID } from "@/lib/types";
 import { Canvas } from "@/components/canvas";
@@ -14,10 +13,15 @@ import { Linkedin } from "@/components/ui/svgs/linkedin";
 
 type Page = { id: string; items: CanvasItem[]; layouts: GridLayouts };
 
+function readPageIndex(pageCount: number) {
+  if (typeof window === "undefined") return 0;
+  const raw = Number(new URLSearchParams(window.location.search).get("page"));
+  if (!Number.isFinite(raw) || raw < 1) return 0;
+  return Math.max(0, Math.min(Math.floor(raw) - 1, pageCount - 1));
+}
+
 export function SharedCanvas({ canvas }: { canvas: CanvasType }) {
   const [maxRows, setMaxRows] = useState(estimateMaxRowsFromViewport);
-  const navigate = useNavigate({ from: "/c/$id" });
-  const search = useSearch({ from: "/c/$id" });
 
   const pages = useMemo<Page[]>(() => {
     return canvas.pages.map((page, idx) => {
@@ -34,16 +38,29 @@ export function SharedCanvas({ canvas }: { canvas: CanvasType }) {
     });
   }, [canvas.pages, canvas.generation, maxRows]);
 
-  const urlPage = search.page ?? 1;
-  const activePage = Math.max(0, Math.min(urlPage - 1, pages.length - 1));
+  const [activePage, setActivePageIndex] = useState(() => readPageIndex(canvas.pages.length));
+  const pageCountRef = useRef(pages.length);
+  pageCountRef.current = pages.length;
 
   const setActivePage = (next: number) => {
     const clamped = Math.max(0, Math.min(next, pages.length - 1));
-    navigate({
-      params: { id: canvas.id },
-      search: clamped === 0 ? {} : { page: clamped + 1 },
-    });
+    setActivePageIndex(clamped);
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (clamped === 0) url.searchParams.delete("page");
+    else url.searchParams.set("page", String(clamped + 1));
+    window.history.pushState(null, "", url);
   };
+
+  useEffect(() => {
+    setActivePageIndex((page) => Math.max(0, Math.min(page, pages.length - 1)));
+  }, [pages.length]);
+
+  useMountEffect(() => {
+    const onPopState = () => setActivePageIndex(readPageIndex(pageCountRef.current));
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  });
 
   // Latest-handler ref: install the keydown listener once on mount, route to
   // the current closure so activePage/pages.length changes don't resubscribe.

@@ -13,6 +13,7 @@ export const Route = createRootRoute({
         content: "width=device-width, initial-scale=1, maximum-scale=1",
       },
       { name: "theme-color", content: "#ffffff" },
+      { name: "referrer", content: "no-referrer" },
       { title: "Shareboard" },
       { name: "description", content: "Collect, curate, and share ideas beautifully" },
       { name: "apple-mobile-web-app-capable", content: "yes" },

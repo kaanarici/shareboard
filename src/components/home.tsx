@@ -39,13 +39,16 @@ import {
 } from "@/lib/tile-specs";
 import type {
   BoardPage,
+  Canvas as SharedCanvasData,
   CanvasItem,
   GenerateResponse,
   GridLayouts,
+  NoteItem,
   UrlItem,
 } from "@/lib/types";
 import { BOARD_SUMMARY_ITEM_ID, isDraftImageItem } from "@/lib/types";
 import { IMAGE_POLICY, formatBytes, optimizeImageForShare } from "@/lib/image-policy";
+import { createTinyShareUrl } from "@/lib/tiny-share";
 
 type SharePayload = {
   author: string;
@@ -499,6 +502,31 @@ export function Home() {
       };
 
       form.set("payload", JSON.stringify(payload));
+
+      const hasImages = pages.some((page) => page.items.some((item) => item.type === "image"));
+      if (!hasImages) {
+        const tinyCanvas: SharedCanvasData = {
+          id: "tiny",
+          author: payload.author || "Anonymous",
+          authorProfile: payload.authorProfile,
+          pages: payload.pages.map((page) => ({
+            id: page.id,
+            layouts: page.layouts,
+            items: page.items.filter(
+              (item): item is UrlItem | NoteItem => item.type === "url" || item.type === "note"
+            ),
+          })),
+          ...(generation ? { generation } : {}),
+          createdAt: new Date().toISOString(),
+        };
+        const tinyUrl = await createTinyShareUrl(tinyCanvas, window.location.origin);
+        if (tinyUrl) {
+          await navigator.clipboard.writeText(tinyUrl);
+          notify.success("Link copied to clipboard");
+          return;
+        }
+      }
+
       for (const page of pages) {
         for (const item of page.items) {
           if (item.type === "board_summary") continue;
@@ -599,12 +627,12 @@ export function Home() {
   // without resubscribing — resubscribing on rapid pastes dropped items.
   const handlePasteRef = useRef<(e: ClipboardEvent) => void>(() => {});
   handlePasteRef.current = (e: ClipboardEvent) => {
-    const target = e.target as HTMLElement;
+    const target = e.target instanceof HTMLElement ? e.target : null;
     if (
-      target.closest("input, textarea, select") ||
-      target.isContentEditable ||
-      target.closest(".tiptap") ||
-      target.closest("[contenteditable]")
+      target?.closest("input, textarea, select") ||
+      target?.isContentEditable ||
+      target?.closest(".tiptap") ||
+      target?.closest("[contenteditable]")
     ) {
       return;
     }
