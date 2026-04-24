@@ -15,6 +15,12 @@ function readTinyPayload() {
   return new URLSearchParams(window.location.hash.slice(1)).get(TINY_SHARE_PARAM);
 }
 
+function readInitialPageIndex() {
+  if (typeof window === "undefined") return 0;
+  const raw = Number(new URLSearchParams(window.location.search).get("page"));
+  return Number.isFinite(raw) && raw > 1 ? Math.floor(raw) - 1 : 0;
+}
+
 export const Route = createFileRoute("/s")({
   head: () => ({
     meta: [
@@ -53,7 +59,9 @@ function TinySharedPage() {
     };
   });
 
-  if (state.status === "ready") return <SharedCanvas canvas={state.canvas} />;
+  if (state.status === "ready") {
+    return <SharedCanvas canvas={state.canvas} initialPageIndex={readInitialPageIndex()} />;
+  }
   if (state.status === "loading") {
     return <div className="flex h-dvh items-center justify-center text-sm text-muted-foreground">Loading board...</div>;
   }

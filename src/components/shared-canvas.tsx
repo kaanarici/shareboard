@@ -13,14 +13,23 @@ import { Linkedin } from "@/components/ui/svgs/linkedin";
 
 type Page = { id: string; items: CanvasItem[]; layouts: GridLayouts };
 
-function readPageIndex(pageCount: number) {
-  if (typeof window === "undefined") return 0;
-  const raw = Number(new URLSearchParams(window.location.search).get("page"));
-  if (!Number.isFinite(raw) || raw < 1) return 0;
-  return Math.max(0, Math.min(Math.floor(raw) - 1, pageCount - 1));
+function clampPageIndex(page: number, pageCount: number) {
+  if (!Number.isFinite(page) || page < 0) return 0;
+  return Math.max(0, Math.min(Math.floor(page), pageCount - 1));
 }
 
-export function SharedCanvas({ canvas }: { canvas: CanvasType }) {
+function readPageIndexFromUrl(pageCount: number) {
+  const raw = Number(new URLSearchParams(window.location.search).get("page"));
+  return clampPageIndex(raw - 1, pageCount);
+}
+
+export function SharedCanvas({
+  canvas,
+  initialPageIndex = 0,
+}: {
+  canvas: CanvasType;
+  initialPageIndex?: number;
+}) {
   const [maxRows, setMaxRows] = useState(estimateMaxRowsFromViewport);
 
   const pages = useMemo<Page[]>(() => {
@@ -38,7 +47,9 @@ export function SharedCanvas({ canvas }: { canvas: CanvasType }) {
     });
   }, [canvas.pages, canvas.generation, maxRows]);
 
-  const [activePage, setActivePageIndex] = useState(() => readPageIndex(canvas.pages.length));
+  const [activePage, setActivePageIndex] = useState(() =>
+    clampPageIndex(initialPageIndex, canvas.pages.length)
+  );
   const pageCountRef = useRef(pages.length);
   pageCountRef.current = pages.length;
 
@@ -53,11 +64,11 @@ export function SharedCanvas({ canvas }: { canvas: CanvasType }) {
   };
 
   useEffect(() => {
-    setActivePageIndex((page) => Math.max(0, Math.min(page, pages.length - 1)));
+    setActivePageIndex((page) => clampPageIndex(page, pages.length));
   }, [pages.length]);
 
   useMountEffect(() => {
-    const onPopState = () => setActivePageIndex(readPageIndex(pageCountRef.current));
+    const onPopState = () => setActivePageIndex(readPageIndexFromUrl(pageCountRef.current));
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   });

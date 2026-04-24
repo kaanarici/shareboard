@@ -522,6 +522,8 @@ export function Home() {
         const tinyUrl = await createTinyShareUrl(tinyCanvas, window.location.origin);
         if (tinyUrl) {
           await navigator.clipboard.writeText(tinyUrl);
+          clearLastSharedBoard();
+          setHasLastSharedBoard(false);
           notify.success("Link copied to clipboard");
           return;
         }

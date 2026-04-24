@@ -3,6 +3,7 @@ import type {
   Canvas,
   GenerateResponse,
   GridLayouts,
+  OGData,
   Platform,
   SharedCanvasItem,
 } from "@/lib/types";
@@ -112,6 +113,24 @@ function sanitizeProfile(value: unknown): AuthorProfile | undefined {
   return Object.keys(profile).length ? profile : undefined;
 }
 
+function sanitizeOgData(value: unknown): OGData | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const input = value as Record<string, unknown>;
+  const title = trimText(input.title, 300);
+  const description = trimText(input.description, 300);
+  const image = keepHttpUrl(input.image, 2048);
+  const siteName = trimText(input.siteName, 120);
+  const author = trimText(input.author, 120);
+  if (!title && !description && !image && !siteName && !author) return undefined;
+  return {
+    ...(title ? { title } : {}),
+    ...(description ? { description } : {}),
+    ...(image ? { image } : {}),
+    ...(siteName ? { siteName } : {}),
+    ...(author ? { author } : {}),
+  };
+}
+
 function sanitizeGeneration(value: unknown): GenerateResponse | undefined {
   if (!value || typeof value !== "object") return undefined;
   const input = value as Record<string, unknown>;
@@ -158,7 +177,14 @@ function sanitizeItem(value: unknown): SharedCanvasItem | null {
     const url = keepHttpUrl(item.url, 4096);
     const platform = trimText(item.platform, 40);
     if (!url || !PLATFORMS.has(platform as Platform)) return null;
-    return { id, type: "url", url, platform: platform as Platform };
+    const ogData = sanitizeOgData(item.ogData);
+    return {
+      id,
+      type: "url",
+      url,
+      platform: platform as Platform,
+      ...(ogData ? { ogData } : {}),
+    };
   }
 
   return null;

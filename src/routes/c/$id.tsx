@@ -58,5 +58,6 @@ export const Route = createFileRoute("/c/$id")({
 
 function SharedPage() {
   const { canvas } = Route.useLoaderData();
-  return <SharedCanvas canvas={canvas} />;
+  const search = Route.useSearch();
+  return <SharedCanvas canvas={canvas} initialPageIndex={(search.page ?? 1) - 1} />;
 }
