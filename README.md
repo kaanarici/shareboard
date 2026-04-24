@@ -17,7 +17,11 @@ Open [http://localhost:3000](http://localhost:3000), set a display name and API 
 
 Sharing boards to a public URL uses Cloudflare R2. Without these, the rest of the app still works.
 
-Copy `.env.example` → `.env` and fill in values.
+Copy `.env.example` → `.env` and fill in values:
+
+- `CLOUDFLARE_ACCOUNT_ID`
+- `CLOUDFLARE_API_TOKEN`
+- `R2_PUBLIC_URL`
 
 ## Share Architecture
 

@@ -19,7 +19,7 @@ IMPORTANT:
 - Only state facts you can verify from the content. Never fabricate quotes, stats, or claims.
 - If you cannot access a URL, say so in the summary rather than guessing its content.
 - If a YouTube transcript is provided, use it as the primary source for that video's summary.
-- If tweet text is provided, use it as the primary source for that tweet's summary. Do NOT try to fetch the tweet URL.
+- If tweet text is provided, use it as the primary source for that tweet's summary. Do NOT try to fetch the tweet URL. Any input_image attachments immediately after a tweet's text come from that tweet — describe relevant visual content when summarizing.
 - Be concise, clear, and factual.`;
 
 const RESPONSE_SCHEMA = {
@@ -65,13 +65,33 @@ async function getYouTubeTranscript(videoId: string): Promise<string | null> {
   }
 }
 
-async function getTweetText(tweetId: string): Promise<{ text: string; author: string } | null> {
+// Shape: { text: "Palantir CEO...", author: "Chubby♨️ (@kimmonismus)", photos: ["https://pbs.twimg.com/media/HFt_gasaUAA4jYY.jpg"] }
+async function getTweetData(
+  tweetId: string,
+): Promise<{ text: string; author: string; photos: string[] } | null> {
   try {
     const tweet = await getTweet(tweetId);
     if (!tweet) return null;
+
+    // react-tweet's public Tweet type omits note_tweet and mediaDetails; reach
+    // for them via a widened shape so we can recover long-tweet bodies (>280
+    // chars live in note_tweet) and attach photos as multimodal inputs.
+    const extra = tweet as typeof tweet & {
+      note_tweet?: { note_tweet_results?: { result?: { text?: string } } };
+      mediaDetails?: Array<{ type: string; media_url_https: string }>;
+    };
+
+    const longText = extra.note_tweet?.note_tweet_results?.result?.text;
+    const text = longText && longText.length > tweet.text.length ? longText : tweet.text;
+
+    const photos = (extra.mediaDetails ?? [])
+      .filter((m) => m.type === "photo")
+      .map((m) => m.media_url_https);
+
     return {
-      text: tweet.text,
+      text,
       author: `${tweet.user.name} (@${tweet.user.screen_name})`,
+      photos,
     };
   } catch {
     return null;
@@ -93,7 +113,7 @@ export const Route = createFileRoute("/api/generate")({
         }
 
         const transcripts = new Map<string, string>();
-        const tweetTexts = new Map<string, { text: string; author: string }>();
+        const tweetData = new Map<string, { text: string; author: string; photos: string[] }>();
 
         await Promise.all(
           items.map(async (item) => {
@@ -109,32 +129,52 @@ export const Route = createFileRoute("/api/generate")({
             if (item.platform === "twitter") {
               const tweetId = extractTweetId(item.url);
               if (!tweetId) return;
-              const tweetData = await getTweetText(tweetId);
-              if (tweetData) tweetTexts.set(item.id, tweetData);
+              const data = await getTweetData(tweetId);
+              if (data) tweetData.set(item.id, data);
             }
           })
         );
 
-        const userPrompt = items
-          .map((item, i) => {
-            if (item.type === "url") {
-              let line = `[${i + 1}] URL (id: ${item.id}, platform: ${item.platform}): ${item.url}`;
-              const transcript = transcripts.get(item.id);
-              if (transcript) {
-                line += `\n    [YouTube Transcript]: ${transcript.slice(0, 3000)}`;
-              }
-              const tweetData = tweetTexts.get(item.id);
-              if (tweetData) {
-                line += `\n    [Tweet Author]: ${tweetData.author}`;
-                line += `\n    [Tweet Text]: ${tweetData.text}`;
-              }
-              return line;
+        // shape: [{type:"input_text", text:"[1] URL..."}, {type:"input_image", image_url:"https://pbs.twimg.com/media/..."}, ...]
+        type UserContent =
+          | { type: "input_text"; text: string }
+          | { type: "input_image"; image_url: string; detail: "low" };
+        const userContent: UserContent[] = [];
+
+        items.forEach((item, i) => {
+          if (item.type === "url") {
+            let line = `[${i + 1}] URL (id: ${item.id}, platform: ${item.platform}): ${item.url}`;
+            const transcript = transcripts.get(item.id);
+            if (transcript) {
+              line += `\n    [YouTube Transcript]: ${transcript.slice(0, 3000)}`;
             }
-            if (item.type === "note") return `[${i + 1}] Note (id: ${item.id}): ${item.text}`;
-            if (item.type === "image") return `[${i + 1}] Screenshot (id: ${item.id}): ${item.caption || "No caption"}`;
-            return "";
-          })
-          .join("\n\n");
+            const data = tweetData.get(item.id);
+            if (data) {
+              line += `\n    [Tweet Author]: ${data.author}`;
+              line += `\n    [Tweet Text]: ${data.text}`;
+              if (data.photos.length > 0) {
+                line += `\n    [Tweet Images]: ${data.photos.length} image${data.photos.length === 1 ? "" : "s"} attached below (from this tweet).`;
+              }
+            }
+            userContent.push({ type: "input_text", text: line });
+            if (data) {
+              for (const url of data.photos) {
+                userContent.push({ type: "input_image", image_url: url, detail: "low" });
+              }
+            }
+            return;
+          }
+          if (item.type === "note") {
+            userContent.push({ type: "input_text", text: `[${i + 1}] Note (id: ${item.id}): ${item.text}` });
+            return;
+          }
+          if (item.type === "image") {
+            userContent.push({
+              type: "input_text",
+              text: `[${i + 1}] Screenshot (id: ${item.id}): ${item.caption || "No caption"}`,
+            });
+          }
+        });
 
         try {
           const openai = new OpenAI({ apiKey });
@@ -143,7 +183,7 @@ export const Route = createFileRoute("/api/generate")({
             model: "gpt-5.4-mini",
             input: [
               { role: "system", content: SYSTEM_PROMPT },
-              { role: "user", content: userPrompt },
+              { role: "user", content: userContent },
             ],
             tools: [{ type: "web_search_preview" }],
             text: {

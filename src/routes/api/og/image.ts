@@ -1,13 +1,33 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { takeRateLimit } from "@/lib/rate-limit";
 import { fetchPublicUrl, BROWSER_UA } from "@/lib/safe-fetch";
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const FALLBACK_CACHE = "public, max-age=86400, stale-while-revalidate=604800";
 
+function getClientIp(request: Request): string | null {
+  const ip =
+    request.headers.get("cf-connecting-ip") ||
+    request.headers.get("x-real-ip") ||
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  return ip && ip.length > 0 ? ip : null;
+}
+
 export const Route = createFileRoute("/api/og/image")({
   server: {
     handlers: {
       GET: async ({ request }) => {
+        const ip = getClientIp(request);
+        if (ip) {
+          const rate = takeRateLimit(`og-image:${ip}`, 60, 5 * 60 * 1000);
+          if (!rate.ok) {
+            return Response.json(
+              { error: "Too many image proxy requests. Try again shortly." },
+              { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } }
+            );
+          }
+        }
+
         const rawUrl = new URL(request.url).searchParams.get("url");
         if (!rawUrl) {
           return Response.json({ error: "Missing url parameter" }, { status: 400 });
@@ -15,13 +35,13 @@ export const Route = createFileRoute("/api/og/image")({
 
         let upstream: Response;
         try {
-          upstream = await fetchPublicUrl(rawUrl, {
+          ({ response: upstream } = await fetchPublicUrl(rawUrl, {
             headers: {
               "User-Agent": BROWSER_UA,
               Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
             },
             signal: AbortSignal.timeout(8000),
-          });
+          }));
         } catch (error) {
           const message = error instanceof Error ? error.message : "Fetch failed";
           const status = /private hosts|allowed/i.test(message) ? 400 : 502;

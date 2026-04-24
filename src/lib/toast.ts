@@ -1,18 +1,18 @@
+import type { CSSProperties } from "react";
 import { toast } from "sonner";
 
 /**
- * Thin wrapper around sonner that dedupes same-message toasts within a short
- * window. Instead of stacking a fresh toast on every call, we reuse sonner's
- * id-collision behavior (same id = update in place) and shake the existing
- * element so the user notices the repeat.
+ * Thin wrapper around sonner that dedupes same-message toasts within the same
+ * visible lifetime (same id = update in place). Repeats while the toast is
+ * still open show an iOS-style count badge; when the toast dismisses, the
+ * count resets for the next time.
  *
- * Example shape:
- *   notify.success("URL added")  // first call → new toast
- *   notify.success("URL added")  // within 3s → same toast shakes
+ * Example:
+ *   notify.success("URL added")  // first call → toast, no badge
+ *   notify.success("URL added")  // again before dismiss → badge "2", then "3", …
  */
 
-const DUPE_WINDOW_MS = 3000;
-const lastFired = new Map<string, number>();
+const countById = new Map<string, number>();
 
 function hashKey(s: string): string {
   let h = 0;
@@ -24,33 +24,29 @@ function trigger(kind: "success" | "error", message: string): void {
   const key = `${kind}:${message}`;
   const hash = hashKey(key);
   const id = `sb-${hash}`;
-  const className = `sb-toast-${hash}`;
-  const now = Date.now();
-  const prev = lastFired.get(id);
-  const isDupe = prev != null && now - prev < DUPE_WINDOW_MS;
-  lastFired.set(id, now);
+  const baseClass = `sb-toast-${hash}`;
+  const count = (countById.get(id) ?? 0) + 1;
+  countById.set(id, count);
 
-  toast[kind](message, { id, className });
+  const showBadge = count > 1;
+  // Alternating class restarts the badge animation on each count change (see toast.css).
+  const className = showBadge
+    ? `${baseClass} sb-toast--badged sb-badge-tick-${count % 2}`
+    : baseClass;
 
-  if (!isDupe) return;
-  // Sonner reuses the existing DOM node when id matches, so the inner wrapper
-  // is already mounted — we can apply synchronously. We target [data-content]
-  // (not the root) via inline style because that element is not rewritten on
-  // sonner's re-renders.
-  const apply = () => {
-    const inner = document.querySelector<HTMLElement>(
-      `[data-sonner-toast].${className} [data-content]`,
-    );
-    if (!inner) return;
-    inner.style.animation = "none";
-    // Force a reflow so repeated duplicates restart the animation.
-    void inner.offsetWidth;
-    inner.style.animation = "sb-toast-shake 0.36s cubic-bezier(0.36, 0.07, 0.19, 0.97)";
-  };
-  // Update path: node already exists, apply immediately. For the rare race
-  // where sonner hasn't attached the className yet, retry on next microtask.
-  apply();
-  queueMicrotask(apply);
+  toast[kind](message, {
+    id,
+    className,
+    style: showBadge
+      ? ({
+          // Quoted value so `content: var(--sb-badge-count)` is valid CSS.
+          "--sb-badge-count": `"${count}"`,
+        } as CSSProperties)
+      : undefined,
+    onDismiss: () => {
+      countById.delete(id);
+    },
+  });
 }
 
 export const notify = {

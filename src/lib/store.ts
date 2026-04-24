@@ -1,5 +1,6 @@
 "use client";
 
+import { sanitizeOpenaiApiKeyInput } from "@/lib/openai-api-key";
 import type { AuthorProfile } from "@/lib/types";
 
 const KEYS = {
@@ -27,7 +28,7 @@ export function getApiKey(): string {
 }
 
 export function setApiKey(key: string) {
-  localStorage.setItem(KEYS.apiKey, key);
+  localStorage.setItem(KEYS.apiKey, sanitizeOpenaiApiKeyInput(key));
   notifySettingsChanged();
 }
 

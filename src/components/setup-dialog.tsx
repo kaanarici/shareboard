@@ -1,6 +1,8 @@
 
 import { useState } from "react";
+import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { isPlausibleOpenaiApiKey, sanitizeOpenaiApiKeyInput } from "@/lib/openai-api-key";
 import { setApiKey, setName, setProfile } from "@/lib/store";
 import { X as XIcon } from "@/components/ui/svgs/x";
 import { InstagramIcon } from "@/components/ui/svgs/instagramIcon";
@@ -26,7 +28,7 @@ export function SetupCards({ onComplete }: { onComplete: () => void }) {
     e.preventDefault();
     if (!name.trim() || closing) return;
     setName(name.trim());
-    setApiKey(key.trim());
+    setApiKey(key);
     setProfile({ xUrl, instagramUrl, linkedinUrl });
     setClosing(true);
     window.setTimeout(onComplete, 180);
@@ -114,14 +116,25 @@ export function SetupCards({ onComplete }: { onComplete: () => void }) {
             OpenAI API key
             <span className="setup-dialog-tile-label-muted">(optional, for Summarize)</span>
           </span>
-          <input
-            type="text"
-            placeholder="sk-..."
-            value={key}
-            onChange={(e) => setKeyValue(e.target.value)}
-            {...ignoreAttrs}
-            className="setup-dialog-tile-input setup-dialog-tile-input--masked"
-          />
+          <div className="setup-dialog-apikey-row">
+            <input
+              type="text"
+              placeholder="sk-..."
+              value={key}
+              onChange={(e) => setKeyValue(sanitizeOpenaiApiKeyInput(e.target.value))}
+              {...ignoreAttrs}
+              className="setup-dialog-tile-input setup-dialog-tile-input--masked"
+            />
+            {isPlausibleOpenaiApiKey(key) && (
+              <span
+                className="setup-dialog-apikey-ok"
+                title="Key format looks good"
+                aria-label="Key format looks good"
+              >
+                <Check strokeWidth={2.5} aria-hidden />
+              </span>
+            )}
+          </div>
         </div>
 
         {name.length > 0 && (

@@ -32,7 +32,7 @@ export function Canvas({
   items,
   generation,
   layouts,
-  selectedId,
+  selectedIds,
   onSelect,
   onLayoutChange,
   onRemove,
@@ -51,8 +51,8 @@ export function Canvas({
   layouts: GridLayouts;
   /** Row budget for the lg breakpoint — must match layout generation in tile-specs. */
   maxRows: number;
-  selectedId?: string | null;
-  onSelect?: (id: string | null) => void;
+  selectedIds?: string[];
+  onSelect?: (id: string | null, e?: React.MouseEvent) => void;
   onLayoutChange?: (layouts: GridLayouts) => void;
   onRemove?: (id: string) => void;
   onDropData?: (data: DataTransfer) => void;
@@ -139,7 +139,7 @@ export function Canvas({
         target.classList.contains("react-grid-layout");
       if (isBackground && onSelect) onSelect(null);
     },
-    [onSelect],
+    [onSelect]
   );
 
   const handleDragEnter = useCallback(
@@ -243,7 +243,7 @@ export function Canvas({
             {items.map((item) => (
               <div
                 key={item.id}
-                className={`group overflow-hidden rounded-lg ${selectedId === item.id ? "ring-2 ring-primary/40 ring-offset-2 ring-offset-background" : ""} ${readonly && item.type === "image" ? "cursor-zoom-in" : ""}`}
+                className={`group overflow-hidden rounded-lg ${selectedIds?.includes(item.id) ? "ring-2 ring-primary/40 ring-offset-2 ring-offset-background" : ""} ${readonly && item.type === "image" ? "cursor-zoom-in" : ""}`}
                 onClick={(e) => {
                   e.stopPropagation();
                   if (readonly && item.type === "image") {
@@ -251,7 +251,7 @@ export function Canvas({
                     if (src) setLightbox({ src, alt: item.caption });
                     return;
                   }
-                  onSelect?.(item.id);
+                  onSelect?.(item.id, e);
                 }}
               >
                 {!readonly && onRemove && (

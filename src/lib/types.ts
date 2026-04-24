@@ -27,6 +27,7 @@ export interface DraftImageItem {
   /** Browser file, e.g. `File{name:"screenshot.png", type:"image/png"}`. Never persisted. */
   file: File;
   mimeType?: string;
+  size?: number;
   caption?: string;
 }
 
@@ -35,7 +36,10 @@ export interface SharedImageItem {
   type: "image";
   /** Public R2 URL, e.g. `https://pub-.../images/abc123/item1`. */
   url: string;
+  /** Canonical R2 object key used for deletion, independent of the public URL shape. */
+  objectKey?: string;
   mimeType?: string;
+  size?: number;
   caption?: string;
 }
 

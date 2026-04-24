@@ -19,8 +19,8 @@ const SHARE_LIMITS = {
   maxPages: 12,
   maxItemsPerPage: 60,
   maxImages: 32,
-  maxImageBytes: 8 * 1024 * 1024,
-  maxTotalImageBytes: 48 * 1024 * 1024,
+  maxImageBytes: 4 * 1024 * 1024,
+  maxTotalImageBytes: 75 * 1024 * 1024,
   maxAuthorChars: 80,
   maxUrlChars: 4096,
   maxNoteChars: 20000,
@@ -92,6 +92,7 @@ type ShareImageItem = {
   id: string;
   type: "image";
   mimeType?: string;
+  size?: number;
   caption?: string;
 };
 
@@ -102,6 +103,18 @@ function getClientIp(request: Request) {
     request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
     "unknown"
   );
+}
+
+/**
+ * Reject cross-origin browser requests. Same-origin browser calls always send
+ * `Origin`; server-side callers (curl, scripts) usually omit it — we allow the
+ * absent case so smoke tests still work. Shape: "https://shareboard.example".
+ */
+function isSameOrigin(request: Request): boolean {
+  const origin = request.headers.get("origin");
+  if (!origin) return true;
+  const expected = new URL(request.url).origin;
+  return origin === expected;
 }
 
 function trimText(value: unknown, max: number) {
@@ -243,9 +256,16 @@ function sanitizeNoteItem(value: Record<string, unknown>) {
 function sanitizeImageItem(value: Record<string, unknown>): ShareImageItem | null {
   const id = trimText(value.id, 80);
   const mimeType = trimText(value.mimeType, 120) || undefined;
+  const size = Number(value.size);
   const caption = trimText(value.caption, 300) || undefined;
   if (!id) return null;
-  return { id, type: "image", mimeType, caption };
+  return {
+    id,
+    type: "image",
+    mimeType,
+    ...(Number.isFinite(size) && size > 0 ? { size: Math.floor(size) } : {}),
+    caption,
+  };
 }
 
 function parsePayload(raw: string | undefined) {
@@ -325,13 +345,15 @@ async function buildSharedItems(
       const key = `images/${canvasId}/${pageId}/${sanitized.id}`;
       const bytes = Buffer.from(await file.arrayBuffer());
       const mimeType = file.type || sanitized.mimeType || "application/octet-stream";
-      const url = await putBuffer(key, bytes, mimeType);
+      const url = await putBuffer(key, bytes, mimeType, "public, max-age=31536000, immutable");
       uploadedKeys.push(key);
       items.push({
         id: sanitized.id,
         type: "image",
         url,
+        objectKey: key,
         mimeType,
+        size: file.size,
         caption: sanitized.caption,
       });
       continue;
@@ -379,6 +401,9 @@ export const Route = createFileRoute("/api/share")({
   server: {
     handlers: {
       POST: async ({ request }) => {
+        if (!isSameOrigin(request)) {
+          return Response.json({ error: "Forbidden" }, { status: 403 });
+        }
         const ip = getClientIp(request);
         const rate = takeRateLimit(`share:${ip}`, 20, 10 * 60 * 1000);
         if (!rate.ok) {
@@ -427,6 +452,9 @@ export const Route = createFileRoute("/api/share")({
       },
 
       DELETE: async ({ request }) => {
+        if (!isSameOrigin(request)) {
+          return Response.json({ error: "Forbidden" }, { status: 403 });
+        }
         const ip = getClientIp(request);
         const rate = takeRateLimit(`share-delete:${ip}`, 10, 10 * 60 * 1000);
         if (!rate.ok) {
@@ -460,7 +488,7 @@ export const Route = createFileRoute("/api/share")({
           const keys = canvas.pages
             .flatMap((page) => page.items)
             .filter((item): item is Extract<SharedCanvasItem, { type: "image" }> => item.type === "image")
-            .map((item) => getObjectKeyFromPublicUrl(item.url))
+            .map((item) => item.objectKey ?? getObjectKeyFromPublicUrl(item.url))
             .filter((key): key is string => !!key);
 
           await Promise.all(keys.map((key) => deleteObject(key)));

@@ -110,7 +110,7 @@ export const Route = createFileRoute("/api/og")({
         }
 
         try {
-          const res = await fetchPublicUrl(rawUrl, {
+          const { response: res, url: finalUrl } = await fetchPublicUrl(rawUrl, {
             headers: {
               "User-Agent": BROWSER_UA,
               Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -129,7 +129,7 @@ export const Route = createFileRoute("/api/og")({
           }
 
           const html = await readHeadHtml(res);
-          const og = parseOG(html, res.url || rawUrl);
+          const og = parseOG(html, finalUrl);
 
           return Response.json(og, {
             headers: { "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800" },

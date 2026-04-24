@@ -77,6 +77,8 @@
 .setup-dialog-tile--socials {
   grid-column: 2;
   grid-row: 2 / span 2;
+  /* Span is tall; keep card height to content so we don’t get a big empty band inside */
+  align-self: start;
 }
 
 .setup-dialog-tile-label {
@@ -122,10 +124,59 @@
   letter-spacing: 0.12em;
 }
 
+.setup-dialog-tile-input--masked:focus,
+.setup-dialog-tile-input--masked:focus-visible {
+  -webkit-text-security: none;
+  text-security: none;
+  letter-spacing: normal;
+  font-family: var(--font-sans, inherit);
+}
+
+/* Checkmark is out of flow so row height = input only (avoids flex stretching the card) */
+.setup-dialog-apikey-row {
+  position: relative;
+  min-width: 0;
+  margin-top: 0.125rem;
+}
+
+.setup-dialog-apikey-row .setup-dialog-tile-input {
+  width: 100%;
+  min-width: 0;
+}
+
+.setup-dialog-apikey-row:has(.setup-dialog-apikey-ok) .setup-dialog-tile-input {
+  padding-right: 1.5rem;
+}
+
+/* Muted success — warm secondary + hairline border to match setup tiles, not a bright mint pill */
+.setup-dialog-apikey-ok {
+  position: absolute;
+  right: -0.2rem;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.2rem;
+  height: 1.2rem;
+  border-radius: 0.3rem;
+  color: hsl(152 24% 32%);
+  background: var(--secondary);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.75),
+    0 0.5px 1px rgba(0, 0, 0, 0.04);
+  pointer-events: none;
+}
+
+.setup-dialog-apikey-ok svg {
+  width: 0.65rem;
+  height: 0.65rem;
+}
+
 .setup-dialog-social-list {
   display: flex;
   flex-direction: column;
-  flex: 1 1 auto;
   margin-top: 0.125rem;
 }
 

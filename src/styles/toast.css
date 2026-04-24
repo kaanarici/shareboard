@@ -1,4 +1,4 @@
-/* Sonner toaster — prevent text wrapping, auto-size */
+/* Sonner toaster — match board carousel nav pill (.board-nav-pill): 44px × pill */
 [data-sonner-toaster] {
   --width: 400px !important;
 }
@@ -6,15 +6,82 @@
   width: auto !important;
   min-width: 0 !important;
   white-space: nowrap !important;
+  --border-radius: 999px;
+  border-radius: 999px !important;
+  height: 44px;
+  min-height: 44px;
+  box-sizing: border-box;
+}
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] {
+  padding: 0 16px !important;
 }
 
-/* Duplicate toast shake — notify() applies this animation via inline style on
-   the inner [data-content] node (sonner rewrites the toast root's className,
-   so we target the child it leaves alone). Translate-only so neighbors don't
-   reflow. */
-@keyframes sb-toast-shake {
-  10%, 90% { transform: translate3d(-1px, 0, 0); }
-  20%, 80% { transform: translate3d(2px, 0, 0); }
-  30%, 50%, 70% { transform: translate3d(-3px, 0, 0); }
-  40%, 60% { transform: translate3d(3px, 0, 0); }
+/* Repeat notify — red corner badge (class + --sb-badge-count from notify()) */
+
+/* Sonner also uses ::after for [data-expanded=true] hover gap (width:100%). We override
+   every layout property so hover/stack expand cannot stretch the badge. */
+@keyframes sb-toast-badge-bump {
+  0% {
+    opacity: 0;
+    scale: 0.68;
+  }
+  72% {
+    opacity: 1;
+    scale: 1.06;
+  }
+  100% {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+[data-sonner-toaster] [data-sonner-toast].sb-toast--badged {
+  overflow: visible;
+}
+
+/* Badge is out of flow — reserve space so the title never runs underneath it. */
+[data-sonner-toaster] [data-sonner-toast].sb-toast--badged[data-styled="true"] {
+  padding-right: 2.125rem !important;
+}
+
+[data-sonner-toaster]
+  [data-sonner-toast].sb-toast--badged:where(.sb-badge-tick-0, .sb-badge-tick-1)::after {
+  content: var(--sb-badge-count);
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 3;
+  /* Center of the pill on the toast’s top-right corner → ~half in / half out, clear of text. */
+  translate: 32% -32%;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Kill Sonner expanded ::after gap filler */
+  left: auto !important;
+  bottom: auto !important;
+  width: max-content !important;
+  min-width: 1.125rem;
+  max-width: 2.25rem;
+  height: 1.125rem !important;
+  padding: 0 0.3125rem;
+  border-radius: 9999px;
+  background-color: #ff3b30;
+  color: #fff;
+  border: none;
+  outline: none;
+  font-size: 0.625rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  pointer-events: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  animation: sb-toast-badge-bump 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-sonner-toaster]
+    [data-sonner-toast].sb-toast--badged:where(.sb-badge-tick-0, .sb-badge-tick-1)::after {
+    animation: none;
+  }
 }

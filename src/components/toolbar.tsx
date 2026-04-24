@@ -1,9 +1,10 @@
 import { useState, useRef } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { isPlausibleOpenaiApiKey, sanitizeOpenaiApiKeyInput } from "@/lib/openai-api-key";
 import { setApiKey, setName, setProfile, getName, getApiKey, getProfile } from "@/lib/store";
 import {
+  Check,
   ImagePlus,
   Type,
   Sparkles,
@@ -47,7 +48,7 @@ export function Toolbar({
   activePage: number;
   onChangePage: (next: number) => void;
   onAddPage: () => void;
-  onAddImage: (file: File) => void;
+  onAddImage: (file: File) => void | Promise<boolean>;
   onAddNote: (text: string) => void;
   onGenerate: () => void;
   onShare: () => void;
@@ -109,7 +110,7 @@ export function Toolbar({
   const handleSettingsOpenChange = (next: boolean) => {
     if (next) {
       setSettingsName(getName());
-      setSettingsKey(getApiKey());
+      setSettingsKey(sanitizeOpenaiApiKeyInput(getApiKey()));
       const p = getProfile();
       setSettingsX(p.xUrl ?? "");
       setSettingsIg(p.instagramUrl ?? "");
@@ -120,7 +121,7 @@ export function Toolbar({
 
   const saveSettings = () => {
     if (settingsName.trim()) setName(settingsName.trim());
-    setApiKey(settingsKey.trim());
+    setApiKey(settingsKey);
     setProfile({
       xUrl: settingsX.trim(),
       instagramUrl: settingsIg.trim(),
@@ -212,14 +213,25 @@ export function Toolbar({
                 OpenAI API key
                 <span className="setup-dialog-tile-label-muted">(optional, for Summarize)</span>
               </span>
-              <input
-                type="text"
-                placeholder="sk-..."
-                value={settingsKey}
-                onChange={(e) => setSettingsKey(e.target.value)}
-                autoComplete="off"
-                className="setup-dialog-tile-input setup-dialog-tile-input--masked"
-              />
+              <div className="setup-dialog-apikey-row">
+                <input
+                  type="text"
+                  placeholder="sk-..."
+                  value={settingsKey}
+                  onChange={(e) => setSettingsKey(sanitizeOpenaiApiKeyInput(e.target.value))}
+                  autoComplete="off"
+                  className="setup-dialog-tile-input setup-dialog-tile-input--masked"
+                />
+                {isPlausibleOpenaiApiKey(settingsKey) && (
+                  <span
+                    className="setup-dialog-apikey-ok"
+                    title="Key format looks good"
+                    aria-label="Key format looks good"
+                  >
+                    <Check strokeWidth={2.5} aria-hidden />
+                  </span>
+                )}
+              </div>
             </div>
 
             <Button

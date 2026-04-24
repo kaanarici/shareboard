@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useMemo } from "react";
+import { useState, useCallback, useRef, useMemo, useEffect, type MouseEvent } from "react";
 import { useMountEffect } from "@/lib/use-mount-effect";
 import { nanoid } from "nanoid";
 import { useNavigate, useSearch } from "@tanstack/react-router";
@@ -9,6 +9,15 @@ import { SetupCards } from "@/components/setup-dialog";
 import { BoardCarousel } from "@/components/board-carousel";
 import { MobileEditorBanner } from "@/components/mobile-editor-banner";
 import { Toaster } from "@/components/ui/sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import {
   clearLastSharedBoard,
   getLastSharedBoard,
@@ -36,6 +45,7 @@ import type {
   UrlItem,
 } from "@/lib/types";
 import { BOARD_SUMMARY_ITEM_ID, isDraftImageItem } from "@/lib/types";
+import { IMAGE_POLICY, formatBytes, optimizeImageForShare } from "@/lib/image-policy";
 
 type SharePayload = {
   author: string;
@@ -46,7 +56,7 @@ type SharePayload = {
     layouts: GridLayouts;
     items: Array<
       | UrlItem
-      | { id: string; type: "image"; mimeType?: string; caption?: string }
+      | { id: string; type: "image"; mimeType?: string; size?: number; caption?: string }
       | { id: string; type: "note"; text: string }
     >;
   }>;
@@ -130,7 +140,8 @@ export function Home() {
   const [isDeletingShare, setIsDeletingShare] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [hasLastSharedBoard, setHasLastSharedBoard] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [deleteDialogIds, setDeleteDialogIds] = useState<string[] | null>(null);
   const [maxRows, setMaxRows] = useState(estimateMaxRowsFromViewport);
   const [settingsEpoch, setSettingsEpoch] = useState(0);
   // Keep latest pages in a ref so the unmount blob-URL cleanup can walk them
@@ -158,7 +169,19 @@ export function Home() {
     () => pages.reduce((n, p) => n + p.items.filter((i) => i.type !== "board_summary").length, 0),
     [pages]
   );
+  const totalMediaBytes = useMemo(
+    () =>
+      pages.reduce(
+        (n, p) => n + p.items.reduce((sum, item) => sum + (item.type === "image" ? item.size ?? 0 : 0), 0),
+        0
+      ),
+    [pages]
+  );
   const hasItems = totalContentItems > 0;
+
+  useEffect(() => {
+    setSelectedIds([]);
+  }, [activePage]);
 
   // Mount-only: hydrate localStorage-backed flags, subscribe to settings
   // changes, and revoke blob URLs on unmount. Using useMountEffect (the only
@@ -288,19 +311,36 @@ export function Home() {
   );
 
   const addImage = useCallback(
-    (file: File, caption?: string) => {
+    async (file: File, caption?: string) => {
+      let optimized;
+      try {
+        optimized = await optimizeImageForShare(file);
+      } catch (error) {
+        notify.error(error instanceof Error ? error.message : "Could not add image");
+        return false;
+      }
+
+      if (totalMediaBytes + optimized.file.size > IMAGE_POLICY.maxBoardBytes) {
+        notify.error(`Boards can hold up to ${formatBytes(IMAGE_POLICY.maxBoardBytes)} of images`);
+        return false;
+      }
+
       const id = nanoid(10);
       const item: CanvasItem = {
         id,
         type: "image",
-        file,
-        previewUrl: URL.createObjectURL(file),
-        mimeType: file.type || undefined,
+        file: optimized.file,
+        previewUrl: URL.createObjectURL(optimized.file),
+        mimeType: optimized.file.type || undefined,
+        size: optimized.file.size,
         caption,
       };
       addItemWithSpill(item);
+      const saved = optimized.originalSize - optimized.file.size;
+      notify.success(saved > 512 * 1024 ? `Image optimized to ${formatBytes(optimized.file.size)}` : "Image added");
+      return true;
     },
-    [addItemWithSpill]
+    [addItemWithSpill, totalMediaBytes]
   );
 
   const addNote = useCallback(
@@ -312,30 +352,41 @@ export function Home() {
     [addItemWithSpill]
   );
 
-  const removeItem = useCallback(
-    (pageIndex: number, id: string) => {
+  const removeItems = useCallback(
+    (pageIndex: number, ids: string[]) => {
+      if (ids.length === 0) return;
+      const idSet = new Set(ids);
       patchPage(pageIndex, (page) => {
-        const removed = page.items.find((item) => item.id === id);
-        if (removed && isDraftImageItem(removed)) URL.revokeObjectURL(removed.previewUrl);
+        for (const item of page.items) {
+          if (idSet.has(item.id) && isDraftImageItem(item)) {
+            URL.revokeObjectURL(item.previewUrl);
+          }
+        }
         return {
           ...page,
-          items: page.items.filter((item) => item.id !== id),
+          items: page.items.filter((item) => !idSet.has(item.id)),
           layouts: {
-            lg: page.layouts.lg.filter((l) => l.i !== id),
-            sm: page.layouts.sm.filter((l) => l.i !== id),
+            lg: page.layouts.lg.filter((l) => !idSet.has(l.i)),
+            sm: page.layouts.sm.filter((l) => !idSet.has(l.i)),
           },
         };
       });
-      if (id === BOARD_SUMMARY_ITEM_ID) setGeneration(null);
-      else
-        setGeneration((g) =>
-          g
-            ? { ...g, item_summaries: g.item_summaries.filter((s) => s.item_id !== id) }
-            : g
-        );
-      setSelectedId((sel) => (sel === id ? null : sel));
+      if (idSet.has(BOARD_SUMMARY_ITEM_ID)) setGeneration(null);
+      setGeneration((g) =>
+        g
+          ? { ...g, item_summaries: g.item_summaries.filter((s) => !idSet.has(s.item_id)) }
+          : g
+      );
+      setSelectedIds((prev) => prev.filter((x) => !idSet.has(x)));
     },
     [patchPage]
+  );
+
+  const removeItem = useCallback(
+    (pageIndex: number, id: string) => {
+      removeItems(pageIndex, [id]);
+    },
+    [removeItems]
   );
 
   const duplicateItem = useCallback(
@@ -350,7 +401,7 @@ export function Home() {
           : { ...source, id: newId };
         const nextItems = [...page.items, copy];
         const nextLayouts = packPageLayouts(nextItems, page.layouts, maxRows);
-        setSelectedId(newId);
+        setSelectedIds([newId]);
         return { ...page, items: nextItems, layouts: nextLayouts };
       });
     },
@@ -438,6 +489,7 @@ export function Home() {
                   id: item.id,
                   type: "image" as const,
                   mimeType: item.mimeType,
+                  size: item.size,
                   caption: item.caption,
                 };
               }
@@ -510,8 +562,7 @@ export function Home() {
       const files = Array.from(data.files);
       const imageFiles = files.filter((file) => file.type.startsWith("image/"));
       if (imageFiles.length > 0) {
-        for (const file of imageFiles) addImage(file);
-        notify.success(imageFiles.length === 1 ? "Image added" : `${imageFiles.length} images added`);
+        void Promise.all(imageFiles.map((file) => addImage(file)));
         return;
       }
 
@@ -524,8 +575,7 @@ export function Home() {
       const text = data.getData("text/plain")?.trim() || null;
       const svgSource = findSvgSource(html, text);
       if (svgSource) {
-        addImage(createSvgFile(svgSource));
-        notify.success("SVG added");
+        void addImage(createSvgFile(svgSource));
         return;
       }
 
@@ -569,8 +619,7 @@ export function Home() {
       e.preventDefault();
       const file = imageItem.getAsFile();
       if (!file) return;
-      addImage(file);
-      notify.success("Image pasted");
+      void addImage(file);
       return;
     }
 
@@ -585,8 +634,7 @@ export function Home() {
     const svgSource = findSvgSource(html, text);
     if (svgSource) {
       e.preventDefault();
-      addImage(createSvgFile(svgSource));
-      notify.success("SVG added");
+      void addImage(createSvgFile(svgSource));
       return;
     }
 
@@ -604,62 +652,116 @@ export function Home() {
     notify.success("Note added");
   };
 
+  const handleCanvasSelect = useCallback((id: string | null, e?: MouseEvent) => {
+    if (id === null) {
+      setSelectedIds([]);
+      return;
+    }
+    if (e?.metaKey || e?.ctrlKey) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return [...next];
+      });
+    } else {
+      setSelectedIds([id]);
+    }
+  }, []);
+
   // Same latest-handler ref pattern for keydown shortcuts.
   const handleKeyDownRef = useRef<(e: KeyboardEvent) => void>(() => {});
   handleKeyDownRef.current = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      const inField =
-        target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
+    const target = e.target as HTMLElement;
+    const inField =
+      target.tagName === "INPUT" ||
+      target.tagName === "TEXTAREA" ||
+      target.isContentEditable ||
+      !!target.closest('[contenteditable="true"]');
 
-      if (!inField && !needsSetup) {
-        if (e.key === "ArrowLeft" && activePage > 0) {
-          e.preventDefault();
-          setActivePage(activePage - 1);
-          return;
-        }
-        if (e.key === "ArrowRight" && activePage < pages.length - 1) {
-          e.preventDefault();
-          setActivePage(activePage + 1);
-          return;
-        }
+    if (deleteDialogIds) return;
+    if (inField) return;
+
+    if (target.closest("[data-slot=dialog-content]") || target.closest("[data-slot=dialog-overlay]")) {
+      return;
+    }
+
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
+      e.preventDefault();
+      if (!needsSetup && itemsOnActive.length > 0) {
+        setSelectedIds(itemsOnActive.map((i) => i.id));
       }
+      return;
+    }
 
-      if (inField) return;
-      if (!selectedId) return;
-
-      const selected = itemsOnActive.find((i) => i.id === selectedId);
-      if (!selected) return;
-
-      if (e.key === "Backspace" || e.key === "Delete") {
+    if (!needsSetup) {
+      if (e.key === "ArrowLeft" && activePage > 0) {
         e.preventDefault();
-        removeItem(activePage, selectedId);
+        setActivePage(activePage - 1);
         return;
       }
-
-      if ((e.metaKey || e.ctrlKey) && e.key === "d") {
+      if (e.key === "ArrowRight" && activePage < pages.length - 1) {
         e.preventDefault();
-        duplicateItem(activePage, selectedId);
+        setActivePage(activePage + 1);
         return;
       }
+    }
 
-      if ((e.metaKey || e.ctrlKey) && e.key === "c") {
-        e.preventDefault();
-        let text = "";
-        if (selected.type === "url") text = selected.url;
-        else if (selected.type === "note") text = selected.text;
-        else if (selected.type === "board_summary") {
-          text =
-            generation?.overall_summary.explanation?.trim() ||
-            generation?.overall_summary.title ||
-            "";
-        } else if (selected.type === "image")
-          text = "url" in selected ? selected.url : selected.caption ?? selected.file.name;
-        navigator.clipboard.writeText(text);
-        notify.success("Copied");
+    if (needsSetup) return;
+
+    if (selectedIds.length === 0) return;
+
+    if (e.key === "Backspace" || e.key === "Delete") {
+      e.preventDefault();
+      if (selectedIds.length > 1) {
+        setDeleteDialogIds([...selectedIds]);
         return;
       }
+      const only = selectedIds[0]!;
+      const selected = itemsOnActive.find((i) => i.id === only);
+      if (selected) removeItem(activePage, only);
+      return;
+    }
 
-      if (e.key === "Escape") setSelectedId(null);
+    if (selectedIds.length > 1) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setSelectedIds([]);
+      }
+      return;
+    }
+
+    const one = selectedIds[0]!;
+    const selected = itemsOnActive.find((i) => i.id === one);
+    if (!selected) return;
+
+    if ((e.metaKey || e.ctrlKey) && e.key === "d") {
+      e.preventDefault();
+      duplicateItem(activePage, one);
+      return;
+    }
+
+    if ((e.metaKey || e.ctrlKey) && e.key === "c") {
+      e.preventDefault();
+      let text = "";
+      if (selected.type === "url") text = selected.url;
+      else if (selected.type === "note") text = selected.text;
+      else if (selected.type === "board_summary") {
+        text =
+          generation?.overall_summary.explanation?.trim() ||
+          generation?.overall_summary.title ||
+          "";
+      } else if (selected.type === "image")
+        text = "url" in selected ? selected.url : selected.caption ?? selected.file.name;
+      navigator.clipboard.writeText(text);
+      notify.success("Copied");
+      return;
+    }
+
+    if (e.key === "Escape") {
+      e.preventDefault();
+      setSelectedIds([]);
+    }
   };
 
   // Install document-level paste and keydown listeners exactly once. Each
@@ -669,10 +771,10 @@ export function Home() {
     const onPaste = (e: ClipboardEvent) => handlePasteRef.current(e);
     const onKeyDown = (e: KeyboardEvent) => handleKeyDownRef.current(e);
     document.addEventListener("paste", onPaste);
-    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("keydown", onKeyDown, { capture: true });
     return () => {
       document.removeEventListener("paste", onPaste);
-      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("keydown", onKeyDown, { capture: true });
     };
   });
 
@@ -691,8 +793,8 @@ export function Home() {
             generation={generation}
             layouts={page.layouts}
             maxRows={maxRows}
-            selectedId={isActive ? selectedId : null}
-            onSelect={isActive ? setSelectedId : undefined}
+            selectedIds={isActive ? selectedIds : undefined}
+            onSelect={isActive ? handleCanvasSelect : undefined}
             onLayoutChange={(next) => patchPage(i, { layouts: next })}
             onRemove={(id) => removeItem(i, id)}
             onDropData={isActive ? handleDropData : undefined}
@@ -723,6 +825,40 @@ export function Home() {
       />
 
       {needsSetup && <SetupCards onComplete={() => setNeedsSetup(false)} />}
+
+      <Dialog
+        open={deleteDialogIds !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteDialogIds(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              Remove {deleteDialogIds?.length ?? 0} item
+              {deleteDialogIds && deleteDialogIds.length !== 1 ? "s" : ""}?
+            </DialogTitle>
+            <DialogDescription>
+              This cannot be undone. Selected cards will be removed from this page.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-2 sm:justify-end">
+            <Button type="button" variant="outline" onClick={() => setDeleteDialogIds(null)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => {
+                if (deleteDialogIds) removeItems(activePage, deleteDialogIds);
+                setDeleteDialogIds(null);
+              }}
+            >
+              Remove
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Toasts slide up from bottom-right. When the page-nav pill is present
           (>1 page), we shift left past it so the two don't collide. */}
