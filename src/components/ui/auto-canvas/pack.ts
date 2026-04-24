@@ -192,15 +192,18 @@ export function packLayout(
     result.every((l) => l.y + l.h <= options.maxRows!);
   if (fits(packed)) return packed;
 
-  // Scale heights proportionally but respect each spec's minRows floor — if
-  // the budget is only slightly too tight, this can nudge things into place
-  // without shrinking tiles into unreadable slivers.
+  // Scale flex heights only. Aspect-locked tiles re-derive h from w at render,
+  // so shrinking their stored h would make the packed layout lie about fit.
   const bottom = packed.reduce((m, l) => Math.max(m, l.y + l.h), 0);
   const scale = options.maxRows / bottom;
-  const shrunk = inputs.map((inp, i) => ({
-    ...inp,
-    h: Math.max(specs[i].minRows ?? 3, Math.floor(inp.h * scale)),
-  }));
+  const shrunk = inputs.map((inp, i) => {
+    const spec = specs[i];
+    if (spec.aspect && spec.aspect > 0) return inp;
+    return {
+      ...inp,
+      h: Math.max(spec.minRows ?? 3, Math.floor(inp.h * scale)),
+    };
+  });
   const shrunkPacked = packSkyline(shrunk, options);
   if (fits(shrunkPacked)) return shrunkPacked;
 
@@ -227,16 +230,21 @@ export function mergeLayout(
   const kept: LayoutItem[] = [];
   const skyline: number[] = new Array(options.columns).fill(0);
 
-  // Keep persisted positions for tiles that still exist, and seed the skyline
-  // with their footprint so new tiles tuck around them rather than colliding.
+  // Seed the skyline with rendered footprints so newly measured aspect tiles
+  // don't overlap siblings when their persisted h was stale.
   for (const spec of specs) {
     const p = persistedById.get(spec.id);
     if (!p) continue;
-    kept.push(p);
-    for (let k = 0; k < p.w; k++) {
-      const col = p.x + k;
+    const renderedH =
+      spec.aspect && spec.aspect > 0
+        ? chooseRows(spec, p.w, options)
+        : p.h;
+    const item = renderedH === p.h ? p : { ...p, h: renderedH };
+    kept.push(item);
+    for (let k = 0; k < item.w; k++) {
+      const col = item.x + k;
       if (col >= 0 && col < options.columns) {
-        skyline[col] = Math.max(skyline[col], p.y + p.h);
+        skyline[col] = Math.max(skyline[col], item.y + item.h);
       }
     }
   }

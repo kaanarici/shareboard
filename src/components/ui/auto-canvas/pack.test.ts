@@ -30,20 +30,18 @@ describe("colSpanToPx / pxToColSpan", () => {
 });
 
 describe("chooseSpan", () => {
-  test("respects maxWidthPx by picking the largest span <= cap", () => {
-    // At 1440px / 24 cols / 12 gap, colW ≈ 48.5. Span 9 = 532, span 10 = 593.
-    // A 550-capped tile should land at 9.
+  test("respects maxWidthPx, then rounds down to a row-tiling span", () => {
     const span = chooseSpan({ aspect: 2, maxWidthPx: 550, minSpan: 3 }, OPTS);
     expect(colSpanToPx(span, OPTS)).toBeLessThanOrEqual(550);
-    expect(colSpanToPx(span + 1, OPTS)).toBeGreaterThan(550);
+    expect(span).toBe(8);
   });
   test("falls back to minSpan when minSpan already exceeds maxWidthPx", () => {
     const narrow = { ...OPTS, containerWidth: 3840 };
     const span = chooseSpan({ maxWidthPx: 300, minSpan: 4 }, narrow);
     expect(span).toBe(4);
   });
-  test("uses preferredSpan when no maxWidthPx", () => {
-    expect(chooseSpan({ preferredSpan: 10 }, OPTS)).toBe(10);
+  test("rounds preferredSpan down to a row-tiling span", () => {
+    expect(chooseSpan({ preferredSpan: 10 }, OPTS)).toBe(8);
   });
   test("clamps preferredSpan to minSpan", () => {
     expect(chooseSpan({ preferredSpan: 1, minSpan: 4 }, OPTS)).toBe(4);
@@ -231,17 +229,15 @@ describe("mergeLayout", () => {
   });
 });
 
-describe("justify-flex (row width fill)", () => {
-  test("stretches the last flex tile in a row to fill remaining width", () => {
-    // Note at span 8 alone on a 24-col grid — 16 cols of slack to the right.
+describe("row-tiling widths", () => {
+  test("keeps a lone flex tile at its row-tiling width", () => {
     const packed = packLayout(
       [{ id: "note", preferredSpan: 8, preferredRows: 5 }],
       OPTS,
     );
-    expect(packed[0].w).toBe(24); // note grows to fill the row
+    expect(packed[0].w).toBe(8);
   });
-  test("does not stretch aspect-locked tiles", () => {
-    // Tweet alone — aspect locked + maxWidthPx. Must stay near natural width.
+  test("does not stretch aspect-locked tiles past their row-tiling cap", () => {
     const packed = packLayout(
       [{ id: "tweet", aspect: 1.2, maxWidthPx: 550, minSpan: 4 }],
       OPTS,
@@ -249,8 +245,7 @@ describe("justify-flex (row width fill)", () => {
     const px = packed[0].w * ((OPTS.containerWidth - OPTS.gap * (OPTS.columns - 1)) / OPTS.columns) + OPTS.gap * (packed[0].w - 1);
     expect(px).toBeLessThanOrEqual(550);
   });
-  test("in a mixed row, stretches the flex tile while leaving the rigid one alone", () => {
-    // Tweet (rigid) + note (flex) in the same row. Note should absorb slack.
+  test("keeps mixed rows on the same tiling span", () => {
     const packed = packLayout(
       [
         { id: "tweet", aspect: 1.2, maxWidthPx: 550, minSpan: 4 },
@@ -260,12 +255,10 @@ describe("justify-flex (row width fill)", () => {
     );
     const tweet = packed.find((l) => l.i === "tweet")!;
     const note = packed.find((l) => l.i === "note")!;
-    // Both start at y=0 so they share a row; together they should cover the
-    // full column count after justify.
     expect(tweet.y).toBe(0);
     expect(note.y).toBe(0);
-    expect(tweet.w + note.w).toBe(OPTS.columns);
-    expect(note.w).toBeGreaterThan(8); // note was stretched
+    expect(tweet.w).toBe(8);
+    expect(note.w).toBe(8);
   });
 });
 
@@ -280,7 +273,7 @@ describe("regression — tweet placement realism", () => {
     };
     const span = chooseSpan(spec, OPTS);
     const pxW = colSpanToPx(span, OPTS);
-    expect(pxW).toBeGreaterThan(480); // not tiny
+    expect(pxW).toBeGreaterThan(460); // not tiny
     expect(pxW).toBeLessThanOrEqual(550); // not oversized
   });
   test("narrow lg viewport doesn't give tweet a sub-4-col span", () => {

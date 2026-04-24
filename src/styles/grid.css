@@ -64,6 +64,11 @@ body.grid-interacting .react-grid-item .overflow-y-scroll {
   overflow: hidden !important;
 }
 
+body.grid-interacting .grid-interacting-fade {
+  opacity: 0.25 !important;
+  filter: grayscale(1);
+}
+
 /* Resize handles — invisible, only cursor changes */
 .react-grid-item > .react-resizable-handle {
   z-index: 15 !important;

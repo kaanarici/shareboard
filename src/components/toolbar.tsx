@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { isPlausibleOpenaiApiKey, sanitizeOpenaiApiKeyInput } from "@/lib/openai-api-key";
@@ -62,8 +63,11 @@ export function Toolbar({
   onOpenHistoryEntry: (entry: BoardHistoryEntry) => void;
   onRemoveHistoryEntry: (id: string) => void;
 }) {
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
+  // Uncontrolled popovers: base-ui's trigger handles open/close (and the
+  // toggle on second-click). We only need a ref to close programmatically
+  // after Save / opening a history entry.
+  const settingsActions = useRef<PopoverPrimitive.Root.Actions>(null);
+  const historyActions = useRef<PopoverPrimitive.Root.Actions>(null);
   const [settingsName, setSettingsName] = useState("");
   const [settingsKey, setSettingsKey] = useState("");
   const [settingsX, setSettingsX] = useState("");
@@ -116,16 +120,13 @@ export function Toolbar({
     },
   ];
 
-  const handleSettingsOpenChange = (next: boolean) => {
-    if (next) {
-      setSettingsName(getName());
-      setSettingsKey(sanitizeOpenaiApiKeyInput(getApiKey()));
-      const p = getProfile();
-      setSettingsX(p.xUrl ?? "");
-      setSettingsIg(p.instagramUrl ?? "");
-      setSettingsLi(p.linkedinUrl ?? "");
-    }
-    setSettingsOpen(next);
+  const hydrateSettingsFields = () => {
+    setSettingsName(getName());
+    setSettingsKey(sanitizeOpenaiApiKeyInput(getApiKey()));
+    const p = getProfile();
+    setSettingsX(p.xUrl ?? "");
+    setSettingsIg(p.instagramUrl ?? "");
+    setSettingsLi(p.linkedinUrl ?? "");
   };
 
   const saveSettings = () => {
@@ -136,7 +137,7 @@ export function Toolbar({
       instagramUrl: settingsIg.trim(),
       linkedinUrl: settingsLi.trim(),
     });
-    setSettingsOpen(false);
+    settingsActions.current?.close();
   };
 
   return (
@@ -151,7 +152,12 @@ export function Toolbar({
       >
         {/* Left: settings */}
         <div className="board-toolbar-left">
-          <Popover open={settingsOpen} onOpenChange={handleSettingsOpenChange}>
+          <Popover
+            actionsRef={settingsActions}
+            onOpenChange={(open) => {
+              if (open) hydrateSettingsFields();
+            }}
+          >
             <PopoverTrigger
               className="board-toolbar-icon"
               aria-label="Settings"
@@ -265,7 +271,7 @@ export function Toolbar({
             </PopoverContent>
           </Popover>
 
-          <Popover open={historyOpen} onOpenChange={setHistoryOpen}>
+          <Popover actionsRef={historyActions}>
             <PopoverTrigger
               className="board-toolbar-icon"
               aria-label="Recent boards"
@@ -290,7 +296,7 @@ export function Toolbar({
                         className="board-history-main"
                         onClick={() => {
                           onOpenHistoryEntry(entry);
-                          setHistoryOpen(false);
+                          historyActions.current?.close();
                         }}
                       >
                         <span className="board-history-title">{entry.title}</span>

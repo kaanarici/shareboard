@@ -120,6 +120,15 @@ export function Canvas({
     [aspectCache],
   );
 
+  const handleMeasureImage = useCallback(
+    (item: CanvasItem, ratio: number) => {
+      if (item.type !== "image") return;
+      const key = "url" in item ? `image:${item.url}` : `image:${item.id}`;
+      aspectCache.set(key, ratio, { persist: "url" in item });
+    },
+    [aspectCache],
+  );
+
   const handleAutoLayoutChange = useCallback(
     (next: AutoLayouts) => {
       if (!onLayoutChange || readonly) return;
@@ -251,18 +260,24 @@ export function Canvas({
                     if (src) setLightbox({ src, alt: item.caption });
                     return;
                   }
+                  const target = e.target as HTMLElement | null;
+                  if (
+                    target?.closest(".ProseMirror, input, textarea, [contenteditable=true]")
+                  ) {
+                    return;
+                  }
                   onSelect?.(item.id, e);
                 }}
               >
                 {!readonly && onRemove && (
-                  <div className="absolute top-2.5 right-2.5 z-20 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                  <div className="grid-card-close absolute top-2.5 right-2.5 z-20 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 grid-interacting-fade">
                     <button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         onRemove(item.id);
                       }}
-                      className="flex h-7 w-7 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md transition-all hover:bg-black/60 hover:scale-110"
+                      className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md transition-all hover:bg-black/60 hover:scale-110"
                     >
                       <X className="h-3.5 w-3.5" strokeWidth={2.5} />
                     </button>
@@ -288,7 +303,13 @@ export function Canvas({
                       }
                     />
                   )}
-                  {item.type === "image" && <ImageCard item={item} summary={getSummary(item.id)} />}
+                  {item.type === "image" && (
+                    <ImageCard
+                      item={item}
+                      summary={getSummary(item.id)}
+                      onMeasure={(ratio) => handleMeasureImage(item, ratio)}
+                    />
+                  )}
                   {item.type === "note" && (
                     <NoteCard
                       item={item}

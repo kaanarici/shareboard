@@ -36,13 +36,7 @@ export function NoteCard({
   });
 
   return (
-    <div
-      className="flex h-full flex-col bg-card p-4"
-      onPointerDownCapture={(e) => {
-        // Prevent grid drag when interacting with the editor
-        if (!readonly) e.stopPropagation();
-      }}
-    >
+    <div className={`flex h-full flex-col bg-card p-4 ${readonly ? "" : "cursor-text"}`}>
       <div className="flex-1 min-h-0 overflow-auto">
         <EditorContent editor={editor} className="h-full text-sm leading-relaxed" />
       </div>

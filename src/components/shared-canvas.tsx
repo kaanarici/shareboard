@@ -10,6 +10,7 @@ import { notify } from "@/lib/toast";
 import { X as XIcon } from "@/components/ui/svgs/x";
 import { InstagramIcon } from "@/components/ui/svgs/instagramIcon";
 import { Linkedin } from "@/components/ui/svgs/linkedin";
+import { Share2 } from "lucide-react";
 
 type Page = { id: string; items: CanvasItem[]; layouts: GridLayouts };
 
@@ -122,60 +123,65 @@ export function SharedCanvas({
     }
   };
 
+  const hasSocials = !!(p && (p.xUrl || p.instagramUrl || p.linkedinUrl));
+
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
-      <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-black/[0.06]">
-        <span className="text-xs font-medium tracking-tight text-muted-foreground shrink-0">
-          Shareboard
+      <div className="board-notch" aria-label="Board info">
+        <span className="board-notch-meta">
+          <span className="board-notch-meta-name">{canvas.author}</span>
         </span>
-        <div className="flex items-center gap-2 min-w-0 justify-end">
-          <span className="text-xs text-muted-foreground truncate">{canvas.author}</span>
-          {p && (p.xUrl || p.instagramUrl || p.linkedinUrl) && (
-            <div className="flex items-center gap-1.5 shrink-0">
-              {p.xUrl && (
+        {hasSocials && (
+          <>
+            <span className="board-notch-divider" aria-hidden />
+            <span className="board-notch-socials">
+              {p?.xUrl && (
                 <a
                   href={p.xUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="rounded-md p-1 text-foreground/50 transition-colors hover:text-foreground hover:bg-black/5"
+                  className="board-notch-social"
                   aria-label="X profile"
                 >
-                  <XIcon className="w-3.5 h-3.5 shrink-0 [&_path]:fill-current" />
+                  <XIcon className="w-3 h-3 [&_path]:fill-current" />
                 </a>
               )}
-              {p.instagramUrl && (
+              {p?.instagramUrl && (
                 <a
                   href={p.instagramUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="rounded-md p-1 text-foreground/50 transition-colors hover:text-foreground hover:bg-black/5"
+                  className="board-notch-social"
                   aria-label="Instagram profile"
                 >
-                  <InstagramIcon className="w-3.5 h-3.5 shrink-0" />
+                  <InstagramIcon className="w-3 h-3" />
                 </a>
               )}
-              {p.linkedinUrl && (
+              {p?.linkedinUrl && (
                 <a
                   href={p.linkedinUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="rounded-md p-1 text-foreground/50 transition-colors hover:text-foreground hover:bg-black/5"
+                  className="board-notch-social"
                   aria-label="LinkedIn profile"
                 >
-                  <Linkedin className="w-3.5 h-3.5 shrink-0" />
+                  <Linkedin className="w-3 h-3" />
                 </a>
               )}
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={share}
-            className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium tracking-tight bg-black text-white hover:bg-black/85 active:scale-[0.98] transition"
-            aria-label="Share this board"
-          >
-            Share
-          </button>
-        </div>
+            </span>
+          </>
+        )}
+        <span className="board-notch-divider" aria-hidden />
+        <button
+          type="button"
+          className="board-notch-action"
+          onClick={share}
+          aria-label="Share this board"
+          title="Share this board"
+        >
+          <Share2 className="h-3.5 w-3.5" />
+          <span>Share</span>
+        </button>
       </div>
 
       <BoardCarousel

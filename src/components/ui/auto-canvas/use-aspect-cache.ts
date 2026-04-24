@@ -12,7 +12,7 @@ import { useMountEffect } from "@/lib/use-mount-effect";
  */
 export interface AspectCache {
   get(key: string): number | undefined;
-  set(key: string, ratio: number): void;
+  set(key: string, ratio: number, options?: { persist?: boolean }): void;
   /** Reactive snapshot of the cache. Referentially stable until cache changes. */
   snapshot: ReadonlyMap<string, number>;
 }
@@ -28,6 +28,7 @@ export function useAspectCache(options: UseAspectCacheOptions = {}): AspectCache
   const { storageKey, epsilon = 0.02 } = options;
   const [snapshot, setSnapshot] = useState<ReadonlyMap<string, number>>(() => hydrate(storageKey));
   const stableRef = useRef(snapshot);
+  const transientKeysRef = useRef(new Set<string>());
   stableRef.current = snapshot;
 
   // storageKey is effectively static per-mount; read it from a ref so the
@@ -45,16 +46,21 @@ export function useAspectCache(options: UseAspectCacheOptions = {}): AspectCache
   });
 
   const set = useCallback(
-    (key: string, ratio: number) => {
+    (key: string, ratio: number, setOptions?: { persist?: boolean }) => {
       if (!Number.isFinite(ratio) || ratio <= 0) return;
       const current = stableRef.current.get(key);
       if (current && Math.abs(current - ratio) / ratio < epsilon) return;
+      if (setOptions?.persist === false) transientKeysRef.current.add(key);
+      else transientKeysRef.current.delete(key);
       setSnapshot((prev) => {
         const next = new Map(prev);
         next.set(key, ratio);
         if (storageKey) {
           try {
-            localStorage.setItem(storageKey, JSON.stringify(Array.from(next.entries())));
+            const persisted = Array.from(next.entries()).filter(
+              ([entryKey]) => !transientKeysRef.current.has(entryKey),
+            );
+            localStorage.setItem(storageKey, JSON.stringify(persisted));
           } catch {
             // Quota exceeded or disabled storage — fall back to in-memory only.
           }

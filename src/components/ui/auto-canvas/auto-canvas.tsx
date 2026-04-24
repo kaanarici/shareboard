@@ -250,7 +250,10 @@ export const AutoCanvas = forwardRef<HTMLDivElement, AutoCanvasProps>(function A
           margin={[gap, gap]}
           containerPadding={[0, 0]}
           autoSize={true}
-          dragConfig={{ enabled: !readonly }}
+          dragConfig={{
+            enabled: !readonly,
+            cancel: ".ProseMirror, input, textarea, [contenteditable=true], .grid-card-close",
+          }}
           resizeConfig={{ enabled: !readonly, handles: ["se", "sw", "ne", "nw"] }}
           compactor={freePlacementCompactor}
           onBreakpointChange={(bp: string) => {
