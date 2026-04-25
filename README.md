@@ -47,10 +47,11 @@ bunx wrangler r2 bucket dev-url enable shareboard
 bunx wrangler r2 bucket dev-url get shareboard
 ```
 
-Set that URL as a Worker secret, then deploy:
+Set the R2 URL and locked-board storage secret as Worker secrets, then deploy:
 
 ```bash
 bunx wrangler secret put R2_PUBLIC_URL
+bunx wrangler secret put SHAREBOARD_LOCKED_STORAGE_SECRET
 bun run deploy:cloudflare
 ```
 
