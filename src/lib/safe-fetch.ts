@@ -1,4 +1,3 @@
-import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 
 export const BROWSER_UA =
@@ -38,15 +37,6 @@ async function assertPublicUrl(value: string): Promise<URL> {
 
   const literal = isIP(url.hostname) ? url.hostname : null;
   if (literal && isPrivateIp(literal)) {
-    throw new Error("Private hosts are not allowed");
-  }
-
-  if (literal) {
-    return url;
-  }
-
-  const records = await lookup(url.hostname, { all: true });
-  if (records.length === 0 || records.some((record) => isPrivateIp(record.address))) {
     throw new Error("Private hosts are not allowed");
   }
 
