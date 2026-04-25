@@ -65,8 +65,12 @@ export function tileSpecFor(
   }
 
   if (item.type === "image") {
+    // Prefer the aspect measured at paste time — it's set *before* the item
+    // enters the layout, so the initial pack (and the spill-to-next-page
+    // check in addItemWithSpill) already sees the correct h. The cache is the
+    // fallback for shared boards (where we don't measure upfront).
     const key = "url" in item ? `image:${item.url}` : `image:${item.id}`;
-    const aspect = aspectCache?.get(key);
+    const aspect = ("aspect" in item ? item.aspect : undefined) ?? aspectCache?.get(key);
     return {
       aspect,
       preferredSpan: 8,

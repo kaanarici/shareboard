@@ -11,6 +11,8 @@ export const IMAGE_POLICY = {
 export type OptimizedImage = {
   file: File;
   originalSize: number;
+  /** Natural pxW/pxH of the source image. `undefined` when we couldn't measure (e.g. viewBox-only SVG). */
+  aspect?: number;
 };
 
 export function formatBytes(bytes: number) {
@@ -31,10 +33,12 @@ export async function optimizeImageForShare(file: File): Promise<OptimizedImage>
     if (file.size > IMAGE_POLICY.maxOutputBytes) {
       throw new Error(`SVGs must be under ${formatBytes(IMAGE_POLICY.maxOutputBytes)}`);
     }
-    return { file, originalSize };
+    const aspect = await measureSvgAspect(file);
+    return { file, originalSize, aspect };
   }
 
   const bitmap = await createImageBitmap(file);
+  const aspect = bitmap.width && bitmap.height ? bitmap.width / bitmap.height : undefined;
   try {
     const scale = Math.min(1, IMAGE_POLICY.maxLongEdge / Math.max(bitmap.width, bitmap.height));
     const width = Math.max(1, Math.round(bitmap.width * scale));
@@ -59,15 +63,36 @@ export async function optimizeImageForShare(file: File): Promise<OptimizedImage>
     }
 
     if (file.size <= IMAGE_POLICY.maxOutputBytes && (!best || best.size >= file.size)) {
-      return { file, originalSize };
+      return { file, originalSize, aspect };
     }
     if (!best || best.size > IMAGE_POLICY.maxOutputBytes) {
       throw new Error(`This image could not be optimized below ${formatBytes(IMAGE_POLICY.maxOutputBytes)}`);
     }
-    return { file: best, originalSize };
+    return { file: best, originalSize, aspect };
   } finally {
     bitmap.close();
   }
+}
+
+// SVGs may only carry viewBox (no width/height), in which case `naturalWidth`
+// is 0 and we can't safely derive aspect — return undefined so the tile falls
+// back to the grid's default flex shape.
+function measureSvgAspect(file: File): Promise<number | undefined> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    const done = (value: number | undefined) => {
+      URL.revokeObjectURL(url);
+      resolve(value);
+    };
+    img.onload = () => {
+      const w = img.naturalWidth;
+      const h = img.naturalHeight;
+      done(w && h ? w / h : undefined);
+    };
+    img.onerror = () => done(undefined);
+    img.src = url;
+  });
 }
 
 function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob> {

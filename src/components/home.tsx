@@ -11,6 +11,7 @@ import { MobileEditorBanner } from "@/components/mobile-editor-banner";
 import { Toaster } from "@/components/ui/sonner";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -18,7 +19,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Check, Loader2, Share2 } from "lucide-react";
+import { Check, Copy, Loader2, Share2 } from "lucide-react";
 import {
   getBoardHistory,
   clearLastSharedBoard,
@@ -54,6 +55,7 @@ import type {
 import { BOARD_SUMMARY_ITEM_ID, isDraftImageItem } from "@/lib/types";
 import { IMAGE_POLICY, formatBytes, optimizeImageForShare } from "@/lib/image-policy";
 import { createTinyShareUrl } from "@/lib/tiny-share";
+import { copyText } from "@/lib/clipboard";
 
 type SharePayload = {
   author: string;
@@ -187,6 +189,7 @@ export function Home() {
   const [shareState, setShareState] = useState<"idle" | "sharing" | "copied">("idle");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [deleteDialogIds, setDeleteDialogIds] = useState<string[] | null>(null);
+  const [manualShareUrl, setManualShareUrl] = useState("");
   const [maxRows, setMaxRows] = useState(estimateMaxRowsFromViewport);
   const [settingsEpoch, setSettingsEpoch] = useState(0);
   const shareResetTimer = useRef<number | null>(null);
@@ -390,6 +393,7 @@ export function Home() {
         mimeType: optimized.file.type || undefined,
         size: optimized.file.size,
         caption,
+        aspect: optimized.aspect,
       };
       addItemWithSpill(item);
       const saved = optimized.originalSize - optimized.file.size;
@@ -536,6 +540,20 @@ export function Home() {
     }, 1800);
   }, []);
 
+  const finishShare = useCallback(
+    async (shareUrl: string) => {
+      if (await copyText(shareUrl)) {
+        markShareCopied();
+        notify.success("Link copied to clipboard");
+        return;
+      }
+      setShareState("idle");
+      setManualShareUrl(shareUrl);
+      notify.success("Share link ready");
+    },
+    [markShareCopied]
+  );
+
   const share = useCallback(async () => {
     if (shareState === "sharing") return;
     setShareState("sharing");
@@ -587,7 +605,6 @@ export function Home() {
         };
         const tinyUrl = await createTinyShareUrl(tinyCanvas, window.location.origin);
         if (tinyUrl) {
-          await navigator.clipboard.writeText(tinyUrl);
           clearLastSharedBoard();
           setHasLastSharedBoard(false);
           saveBoardHistory({
@@ -602,8 +619,7 @@ export function Home() {
             canvas: tinyCanvas,
           });
           setHistory(getBoardHistory());
-          markShareCopied();
-          notify.success("Link copied to clipboard");
+          await finishShare(tinyUrl);
           return;
         }
       }
@@ -626,7 +642,6 @@ export function Home() {
       }
       const { id, deleteToken } = (await res.json()) as ShareResponse;
       const shareUrl = `${window.location.origin}/c/${id}`;
-      await navigator.clipboard.writeText(shareUrl);
       saveLastSharedBoard({ id, deleteToken, shareUrl });
       setHasLastSharedBoard(true);
       saveBoardHistory({
@@ -640,13 +655,12 @@ export function Home() {
         pageCount: payload.pages.length,
       });
       setHistory(getBoardHistory());
-      markShareCopied();
-      notify.success("Link copied to clipboard");
-    } catch {
+      await finishShare(shareUrl);
+    } catch (error) {
       setShareState("idle");
-      notify.error("Failed to share");
+      notify.error(error instanceof Error ? error.message : "Failed to share");
     }
-  }, [pages, generation, shareState, markShareCopied]);
+  }, [pages, generation, shareState, finishShare]);
 
   const deleteLastShare = useCallback(async () => {
     const lastShare = getLastSharedBoard();
@@ -900,8 +914,9 @@ export function Home() {
           "";
       } else if (selected.type === "image")
         text = "url" in selected ? selected.url : selected.caption ?? selected.file.name;
-      navigator.clipboard.writeText(text);
-      notify.success("Copied");
+      void copyText(text).then((copied) =>
+        copied ? notify.success("Copied") : notify.error("Couldn't copy")
+      );
       return;
     }
 
@@ -1026,6 +1041,46 @@ export function Home() {
               }}
             >
               Remove
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!manualShareUrl}
+        onOpenChange={(open) => {
+          if (!open) setManualShareUrl("");
+        }}
+      >
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>Share link</DialogTitle>
+            <DialogDescription>
+              Your board was created, but the browser blocked automatic clipboard access.
+            </DialogDescription>
+          </DialogHeader>
+          <input
+            readOnly
+            value={manualShareUrl}
+            onFocus={(e) => e.currentTarget.select()}
+            className="setup-dialog-tile-input"
+          />
+          <DialogFooter className="mt-2">
+            <DialogClose render={<Button type="button" variant="outline" />}>Done</DialogClose>
+            <Button
+              type="button"
+              onClick={async () => {
+                if (await copyText(manualShareUrl)) {
+                  setManualShareUrl("");
+                  markShareCopied();
+                  notify.success("Link copied to clipboard");
+                } else {
+                  notify.error("Select the link to copy it");
+                }
+              }}
+            >
+              <Copy className="h-4 w-4" />
+              Copy
             </Button>
           </DialogFooter>
         </DialogContent>

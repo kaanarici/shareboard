@@ -445,8 +445,13 @@ export const Route = createFileRoute("/api/share")({
         } catch (error) {
           await Promise.all(uploadedKeys.map((key) => deleteObject(key).catch(() => undefined)));
           const message = error instanceof Error ? error.message : "Failed to share board";
-          const status =
-            /too many|exceed|invalid|missing|unsupported|must include|only image/i.test(message) ? 400 : 500;
+          const status = /too many|exceed|invalid|missing|unsupported|must include|only image/i.test(message)
+            ? 400
+            : /storage is not configured/i.test(message)
+              ? 503
+              : /sharing storage/i.test(message)
+                ? 502
+                : 500;
           return Response.json({ error: message }, { status });
         }
       },

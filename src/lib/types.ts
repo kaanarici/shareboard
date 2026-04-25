@@ -29,6 +29,8 @@ export interface DraftImageItem {
   mimeType?: string;
   size?: number;
   caption?: string;
+  /** Natural pxW/pxH, measured on paste. Used for initial packing so spill-to-next-page decisions match reality. */
+  aspect?: number;
 }
 
 export interface SharedImageItem {
