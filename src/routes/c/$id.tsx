@@ -1,12 +1,12 @@
 import { createFileRoute, notFound } from "@tanstack/react-router";
-import { getPublicUrl } from "@/lib/r2";
+import { getPublicUrlAsync } from "@/lib/r2";
 import type { Canvas as CanvasType } from "@/lib/types";
 import { SharedCanvas } from "@/components/shared-canvas";
 
 async function loadCanvas(id: string): Promise<CanvasType | null> {
   try {
-    const url = getPublicUrl(`canvases/${id}.json`);
-    const res = await fetch(url, { cache: "no-store" });
+    const url = await getPublicUrlAsync(`canvases/${id}.json`);
+    const res = await fetch(url);
     if (!res.ok) return null;
     return (await res.json()) as CanvasType;
   } catch {

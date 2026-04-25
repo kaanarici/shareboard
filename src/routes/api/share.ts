@@ -1,7 +1,6 @@
 import { randomBytes, createHash } from "node:crypto";
-import { nanoid } from "nanoid";
 import { createFileRoute } from "@tanstack/react-router";
-import { deleteObject, getObjectKeyFromPublicUrl, getObjectText, putBuffer, putObject } from "@/lib/r2";
+import { deleteObject, getObjectKeyFromPublicUrlAsync, getObjectText, putBuffer, putObject } from "@/lib/r2";
 import { takeRateLimit } from "@/lib/rate-limit";
 import type {
   AuthorProfile,
@@ -51,6 +50,11 @@ type SharePayload = {
 };
 
 const MAX_SOCIAL_URL = 2048;
+const MANIFEST_CACHE_CONTROL = "public, max-age=3600, stale-while-revalidate=86400";
+
+function createShareId() {
+  return randomBytes(18).toString("base64url");
+}
 
 function isSocialHost(url: string, kind: "x" | "instagram" | "linkedin"): boolean {
   let host: string;
@@ -424,7 +428,7 @@ export const Route = createFileRoute("/api/share")({
             files.set(key.slice("image:".length), value);
           }
 
-          const id = nanoid(10);
+          const id = createShareId();
           const deleteToken = randomBytes(24).toString("base64url");
           const pages = await buildSharedPages(id, payload.pages as unknown[], files, uploadedKeys);
 
@@ -440,7 +444,7 @@ export const Route = createFileRoute("/api/share")({
             deleteTokenHash: hashToken(deleteToken),
           };
 
-          await putObject(`canvases/${id}.json`, JSON.stringify(canvas));
+          await putObject(`canvases/${id}.json`, JSON.stringify(canvas), MANIFEST_CACHE_CONTROL);
           return Response.json({ id, deleteToken });
         } catch (error) {
           await Promise.all(uploadedKeys.map((key) => deleteObject(key).catch(() => undefined)));
@@ -490,11 +494,14 @@ export const Route = createFileRoute("/api/share")({
             return Response.json({ error: "Invalid delete token" }, { status: 403 });
           }
 
-          const keys = canvas.pages
-            .flatMap((page) => page.items)
-            .filter((item): item is Extract<SharedCanvasItem, { type: "image" }> => item.type === "image")
-            .map((item) => item.objectKey ?? getObjectKeyFromPublicUrl(item.url))
-            .filter((key): key is string => !!key);
+          const keys = (
+            await Promise.all(
+              canvas.pages
+                .flatMap((page) => page.items)
+                .filter((item): item is Extract<SharedCanvasItem, { type: "image" }> => item.type === "image")
+                .map((item) => item.objectKey ?? getObjectKeyFromPublicUrlAsync(item.url))
+            )
+          ).filter((key): key is string => !!key);
 
           await Promise.all(keys.map((key) => deleteObject(key)));
           await deleteObject(`canvases/${id}.json`);

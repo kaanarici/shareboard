@@ -7,6 +7,8 @@
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",
+    "deploy:cloudflare": "bun run build && wrangler deploy",
+    "cf-typegen": "wrangler types",
     "start": "vite dev",
     "preview": "vite preview",
     "lint": "eslint"
@@ -40,6 +42,7 @@
     "youtube-transcript": "^1.3.0"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.33.2",
     "@tailwindcss/vite": "^4.2.2",
     "@types/node": "^20",
     "@types/react": "^19",
@@ -49,6 +52,7 @@
     "eslint": "^9",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "vite": "^8.0.8"
+    "vite": "^8.0.8",
+    "wrangler": "^4.85.0"
   }
 }

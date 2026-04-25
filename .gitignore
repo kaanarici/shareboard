@@ -60,5 +60,8 @@ service-account*.json
 # vercel
 .vercel
 
+# cloudflare
+.wrangler/
+
 # typescript
 *.tsbuildinfo
