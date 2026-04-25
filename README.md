@@ -8,10 +8,12 @@ Requires [Bun](https://bun.sh).
 
 ```bash
 bun install
-bun dev
+bun run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000), set a display name, optionally add an API key, then use the app.
+
+`npm start` also runs the dev server with hot reload. Use `bun run build && bun run preview` only when you want to serve the latest production build output.
 
 ## Env (optional)
 
