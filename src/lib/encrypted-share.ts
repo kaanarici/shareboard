@@ -1,7 +1,7 @@
 import type { Canvas, EncryptedCanvasEnvelope, EncryptedShareImage } from "@/lib/types";
 
 export const LOCKED_SHARE_PIN_LENGTH = 6;
-export const LOCKED_SHARE_ITERATIONS = 350_000;
+export const LOCKED_SHARE_ITERATIONS = 100_000;
 
 type EncryptedBytes = {
   iv: string;
