@@ -1,4 +1,3 @@
-
 import { useMemo, useCallback, useState, useRef } from "react";
 import { X } from "lucide-react";
 import type { CanvasItem, GenerateResponse, GridLayouts } from "@/lib/types";

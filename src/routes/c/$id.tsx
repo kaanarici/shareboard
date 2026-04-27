@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { isLockedCanvasStub, type StoredCanvas } from "@/lib/types";
+import { isLockedCanvasStub, type CanvasFetchResponse } from "@/lib/types";
+import { sanitizePublicCanvasManifest } from "@/lib/canvas-sanitize";
 import { SharedCanvas } from "@/components/shared-canvas";
 import { LockedCanvas } from "@/components/locked-canvas";
 
 type LoadState =
   | { status: "loading" }
-  | { status: "ready"; canvas: StoredCanvas }
+  | { status: "ready"; canvas: CanvasFetchResponse }
   | { status: "error" };
 
 type SharedSearch = { page?: number };
@@ -38,24 +39,28 @@ function SharedPage() {
   const [state, setState] = useState<LoadState>({ status: "loading" });
 
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
 
     const load = async () => {
       setState({ status: "loading" });
       try {
-        const res = await fetch(`/api/share?key=${encodeURIComponent(`canvases/${id}.json`)}`);
+        const res = await fetch(
+          `/api/share?key=${encodeURIComponent(`canvases/${id}.json`)}`,
+          { signal: controller.signal }
+        );
         if (!res.ok) throw new Error("Board not found");
-        const canvas = (await res.json()) as StoredCanvas;
-        if (!cancelled) setState({ status: "ready", canvas });
-      } catch {
-        if (!cancelled) setState({ status: "error" });
+        const body = (await res.json().catch(() => null)) as unknown;
+        const canvas = isLockedCanvasStub(body) ? body : sanitizePublicCanvasManifest(body);
+        if (!canvas) throw new Error("Board not found");
+        setState({ status: "ready", canvas });
+      } catch (error) {
+        if ((error as DOMException)?.name === "AbortError") return;
+        setState({ status: "error" });
       }
     };
 
     void load();
-    return () => {
-      cancelled = true;
-    };
+    return () => controller.abort();
   }, [id]);
 
   if (state.status === "loading") {

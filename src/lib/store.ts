@@ -1,5 +1,4 @@
-"use client";
-
+import { useSyncExternalStore } from "react";
 import { sanitizeOpenaiApiKeyInput } from "@/lib/openai-api-key";
 import type { AuthorProfile, Canvas } from "@/lib/types";
 
@@ -35,6 +34,22 @@ const MAX_HISTORY = 12;
 function notifySettingsChanged() {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent("shareboard-settings"));
+}
+
+function subscribeSettings(callback: () => void) {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener("shareboard-settings", callback);
+  return () => window.removeEventListener("shareboard-settings", callback);
+}
+
+/**
+ * Subscribes a component to localStorage-backed settings, re-reading via
+ * `read()` whenever any setter (setApiKey, setName, setProfile) fires the
+ * shareboard-settings event. SSR-safe: `read()` runs on the server too, so
+ * pass guards inside the reader for any browser-only APIs.
+ */
+export function useSyncedSetting<T>(read: () => T): T {
+  return useSyncExternalStore(subscribeSettings, read, read);
 }
 
 export function getApiKey(): string {

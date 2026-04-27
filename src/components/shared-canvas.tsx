@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMountEffect } from "@/lib/use-mount-effect";
+import { clampPageIndex, readPageIndexFromUrl } from "@/lib/pagination";
 import type { Canvas as CanvasType, CanvasItem, GridLayouts } from "@/lib/types";
 import { BOARD_SUMMARY_ITEM_ID } from "@/lib/types";
 import { Canvas } from "@/components/canvas";
@@ -13,16 +14,6 @@ import { Linkedin } from "@/components/ui/svgs/linkedin";
 import { Share2 } from "lucide-react";
 
 type Page = { id: string; items: CanvasItem[]; layouts: GridLayouts };
-
-function clampPageIndex(page: number, pageCount: number) {
-  if (!Number.isFinite(page) || page < 0) return 0;
-  return Math.max(0, Math.min(Math.floor(page), pageCount - 1));
-}
-
-function readPageIndexFromUrl(pageCount: number) {
-  const raw = Number(new URLSearchParams(window.location.search).get("page"));
-  return clampPageIndex(raw - 1, pageCount);
-}
 
 export function SharedCanvas({
   canvas,
@@ -46,7 +37,7 @@ export function SharedCanvas({
       const layouts = page.layouts ?? { lg: [], sm: [] };
       return { id: page.id, items, layouts };
     });
-  }, [canvas.pages, canvas.generation, maxRows]);
+  }, [canvas.pages, canvas.generation]);
 
   const [activePage, setActivePageIndex] = useState(() =>
     clampPageIndex(initialPageIndex, canvas.pages.length)

@@ -1,8 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import OpenAI from "openai";
+import OpenAI, { APIError } from "openai";
 import { YoutubeTranscript } from "youtube-transcript";
 import { getTweet } from "react-tweet/api";
-import type { CanvasItem } from "@/lib/types";
+import { sanitizeGenerateRequestPayload, sanitizeGeneration } from "@/lib/canvas-sanitize";
+import type { GenerateRequestItem } from "@/lib/types";
 import { extractYouTubeId, extractTweetId } from "@/lib/youtube";
 
 const SYSTEM_PROMPT = `You are a content summarizer for Shareboard, a sharing tool. The user has collected links, notes, and screenshots to share.
@@ -98,6 +99,14 @@ async function getTweetData(
   }
 }
 
+function parseJson(value: string): unknown | null {
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return null;
+  }
+}
+
 export const Route = createFileRoute("/api/generate")({
   server: {
     handlers: {
@@ -107,8 +116,13 @@ export const Route = createFileRoute("/api/generate")({
           return Response.json({ error: "Missing API key" }, { status: 401 });
         }
 
-        const { items } = (await request.json()) as { items: CanvasItem[] };
-        if (!items?.length) {
+        const body = (await request.json().catch(() => null)) as unknown;
+        const payload = sanitizeGenerateRequestPayload(body);
+        if (!payload) {
+          return Response.json({ error: "Invalid request body" }, { status: 400 });
+        }
+        const { items } = payload;
+        if (!items.length) {
           return Response.json({ error: "No items provided" }, { status: 400 });
         }
 
@@ -141,7 +155,7 @@ export const Route = createFileRoute("/api/generate")({
           | { type: "input_image"; image_url: string; detail: "low" };
         const userContent: UserContent[] = [];
 
-        items.forEach((item, i) => {
+        items.forEach((item: GenerateRequestItem, i) => {
           if (item.type === "url") {
             let line = `[${i + 1}] URL (id: ${item.id}, platform: ${item.platform}): ${item.url}`;
             const transcript = transcripts.get(item.id);
@@ -207,10 +221,19 @@ export const Route = createFileRoute("/api/generate")({
             return Response.json({ error: "No response from model" }, { status: 502 });
           }
 
-          return Response.json(JSON.parse(textContent.text));
+          const parsed = sanitizeGeneration(parseJson(textContent.text));
+          if (!parsed) {
+            return Response.json({ error: "Invalid model response" }, { status: 502 });
+          }
+          return Response.json(parsed);
         } catch (err: unknown) {
-          const message = err instanceof Error ? err.message : "Generation failed";
-          return Response.json({ error: message }, { status: 500 });
+          if (err instanceof APIError) {
+            return Response.json(
+              { error: err.message },
+              { status: err.status && err.status >= 400 && err.status < 600 ? err.status : 502 }
+            );
+          }
+          return Response.json({ error: "Generation failed" }, { status: 500 });
         }
       },
     },

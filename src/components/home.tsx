@@ -20,19 +20,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Check, Copy, Loader2, Share2 } from "lucide-react";
-import {
-  getBoardHistory,
-  clearLastSharedBoard,
-  getLastSharedBoard,
-  getApiKey,
-  getName,
-  getProfile,
-  isSetup,
-  removeBoardHistoryEntry,
-  saveBoardHistory,
-  saveLastSharedBoard,
-  type BoardHistoryEntry,
-} from "@/lib/store";
+import { getApiKey, isSetup, useSyncedSetting } from "@/lib/store";
 import { detectPlatform, isValidUrl } from "@/lib/platforms";
 import { mergeLayout } from "@/components/ui/auto-canvas";
 import {
@@ -49,38 +37,14 @@ import type {
   CanvasItem,
   GenerateResponse,
   GridLayouts,
-  NoteItem,
-  UrlItem,
+  OGData,
 } from "@/lib/types";
 import { BOARD_SUMMARY_ITEM_ID, isDraftImageItem } from "@/lib/types";
 import { IMAGE_POLICY, formatBytes, optimizeImageForShare } from "@/lib/image-policy";
-import { createTinyShareUrl } from "@/lib/tiny-share";
 import { copyText } from "@/lib/clipboard";
-import {
-  createLockedShareId,
-  createLockedSharePackage,
-  type LockedImageUpload,
-} from "@/lib/encrypted-share";
-
-type SharePayload = {
-  author: string;
-  authorProfile: ReturnType<typeof getProfile>;
-  generation: GenerateResponse | null;
-  pages: Array<{
-    id: string;
-    layouts: GridLayouts;
-    items: Array<
-      | UrlItem
-      | { id: string; type: "image"; mimeType?: string; size?: number; caption?: string }
-      | { id: string; type: "note"; text: string }
-    >;
-  }>;
-};
-
-type ShareResponse = {
-  id: string;
-  deleteToken: string;
-};
+import { readErrorMessage } from "@/lib/fetch-helpers";
+import { useShareFlows } from "@/components/use-share-flows";
+import { sanitizeGeneration } from "@/lib/canvas-sanitize";
 
 function emptyPage(): BoardPage {
   return { id: nanoid(8), items: [], layouts: { lg: [], sm: [] } };
@@ -124,32 +88,6 @@ function createSvgFile(svgSource: string) {
   return new File([withXmlns], `shareboard-${Date.now()}.svg`, { type: "image/svg+xml" });
 }
 
-function getBoardTitle(pages: SharePayload["pages"]) {
-  for (const page of pages) {
-    for (const item of page.items) {
-      if (item.type === "note" && item.text.trim()) {
-        return item.text.trim().replace(/\s+/g, " ").slice(0, 42);
-      }
-      if (item.type === "url") {
-        try {
-          return new URL(item.url).hostname.replace(/^www\./, "");
-        } catch {
-          return item.url.slice(0, 42);
-        }
-      }
-      if (item.type === "image") return item.caption?.trim() || "Image board";
-    }
-  }
-  return "Untitled board";
-}
-
-function getHistorySubtitle(kind: BoardHistoryEntry["kind"], pageCount: number, itemCount: number) {
-  const itemLabel = itemCount === 1 ? "item" : "items";
-  const pageLabel = pageCount === 1 ? "page" : "pages";
-  const prefix = kind === "tiny" ? "Stored in link" : kind === "locked" ? "Locked share" : "Public share";
-  return `${prefix} · ${itemCount} ${itemLabel} · ${pageCount} ${pageLabel}`;
-}
-
 function pagesFromHistoryCanvas(canvas: SharedCanvasData): BoardPage[] {
   return canvas.pages.length
     ? canvas.pages.map((page) => ({
@@ -188,24 +126,43 @@ export function Home() {
   const [generation, setGeneration] = useState<GenerateResponse | null>(null);
   const [needsSetup, setNeedsSetup] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [isDeletingShare, setIsDeletingShare] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const [hasLastSharedBoard, setHasLastSharedBoard] = useState(false);
-  const [history, setHistory] = useState<BoardHistoryEntry[]>([]);
-  const [shareState, setShareState] = useState<"idle" | "sharing" | "copied">("idle");
-  const [lockedShareOpen, setLockedShareOpen] = useState(false);
-  const [lockedShareBusy, setLockedShareBusy] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [deleteDialogIds, setDeleteDialogIds] = useState<string[] | null>(null);
-  const [manualShareUrl, setManualShareUrl] = useState("");
   const [maxRows, setMaxRows] = useState(estimateMaxRowsFromViewport);
-  const [settingsEpoch, setSettingsEpoch] = useState(0);
-  const shareResetTimer = useRef<number | null>(null);
   // Keep latest pages in a ref so the unmount blob-URL cleanup can walk them
   // without being a dep of the mount effect. Assignment during render is safe —
   // it doesn't trigger renders.
   const pagesRef = useRef<BoardPage[]>([]);
   pagesRef.current = pages;
+
+  const restoreBoard = useCallback(
+    (canvas: SharedCanvasData) => {
+      setPages(pagesFromHistoryCanvas(canvas));
+      setGeneration(canvas.generation ?? null);
+      setSelectedIds([]);
+      navigate({ search: {}, replace: false });
+    },
+    [navigate],
+  );
+
+  const {
+    shareState,
+    manualShareUrl,
+    setManualShareUrl,
+    lockedShareOpen,
+    setLockedShareOpen,
+    lockedShareBusy,
+    hasLastSharedBoard,
+    isDeletingShare,
+    history,
+    share,
+    shareLocked,
+    deleteLastShare,
+    openHistoryEntry,
+    removeHistoryEntry,
+    markShareCopied,
+  } = useShareFlows({ pages, generation, onRestoreBoard: restoreBoard });
 
   const activePage = Math.max(0, Math.min(urlPage - 1, pages.length - 1));
 
@@ -220,7 +177,7 @@ export function Home() {
     [navigate, pages.length]
   );
 
-  const hasApiKey = useMemo(() => !!getApiKey().trim(), [settingsEpoch]);
+  const hasApiKey = useSyncedSetting(() => !!getApiKey().trim());
   const itemsOnActive = pages[activePage]?.items ?? [];
   const totalContentItems = useMemo(
     () => pages.reduce((n, p) => n + p.items.filter((i) => i.type !== "board_summary").length, 0),
@@ -240,21 +197,12 @@ export function Home() {
     setSelectedIds([]);
   }, [activePage]);
 
-  // Mount-only: hydrate localStorage-backed flags, subscribe to settings
-  // changes, and revoke blob URLs on unmount. Using useMountEffect (the only
-  // sanctioned useEffect wrapper) keeps this file useEffect-free.
+  // Mount-only: hydrate localStorage-backed flags, revoke blob URLs on unmount.
   useMountEffect(() => {
     setMounted(true);
     setNeedsSetup(!isSetup());
-    setHasLastSharedBoard(!!getLastSharedBoard());
-    setHistory(getBoardHistory());
-
-    const onSettings = () => setSettingsEpoch((e) => e + 1);
-    window.addEventListener("shareboard-settings", onSettings);
 
     return () => {
-      window.removeEventListener("shareboard-settings", onSettings);
-      if (shareResetTimer.current !== null) window.clearTimeout(shareResetTimer.current);
       for (const page of pagesRef.current) {
         for (const item of page.items) {
           if (isDraftImageItem(item)) URL.revokeObjectURL(item.previewUrl);
@@ -367,7 +315,7 @@ export function Home() {
       try {
         const res = await fetch(`/api/og?url=${encodeURIComponent(rawUrl)}`);
         if (res.ok) {
-          const ogData = await res.json();
+          const ogData = (await res.json()) as OGData;
           patchPage(landedIndex, (page) => ({
             ...page,
             items: page.items.map((i) =>
@@ -520,11 +468,14 @@ export function Home() {
         body: JSON.stringify({ items: generationItems }),
       });
       if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "Generation failed" }));
-        notify.error(err.error || "Generation failed");
+        notify.error(await readErrorMessage(res, "Generation failed"));
         return;
       }
-      const data = (await res.json()) as GenerateResponse;
+      const data = sanitizeGeneration((await res.json().catch(() => null)) as unknown);
+      if (!data) {
+        notify.error("Generation failed");
+        return;
+      }
       setGeneration(data);
       patchPage(0, (page) => {
         if (page.items.some((i) => i.id === BOARD_SUMMARY_ITEM_ID)) return page;
@@ -543,285 +494,6 @@ export function Home() {
       setIsGenerating(false);
     }
   }, [pages, patchPage, maxRows, setActivePage]);
-
-  const markShareCopied = useCallback(() => {
-    setShareState("copied");
-    if (shareResetTimer.current !== null) window.clearTimeout(shareResetTimer.current);
-    shareResetTimer.current = window.setTimeout(() => {
-      setShareState("idle");
-      shareResetTimer.current = null;
-    }, 1800);
-  }, []);
-
-  const finishShare = useCallback(
-    async (shareUrl: string) => {
-      if (await copyText(shareUrl)) {
-        markShareCopied();
-        notify.success("Link copied to clipboard");
-        return;
-      }
-      setShareState("idle");
-      setManualShareUrl(shareUrl);
-      notify.success("Share link ready");
-    },
-    [markShareCopied]
-  );
-
-  const share = useCallback(async () => {
-    if (shareState === "sharing") return;
-    setShareState("sharing");
-    try {
-      const form = new FormData();
-      const payload: SharePayload = {
-        author: getName(),
-        authorProfile: getProfile(),
-        generation,
-        pages: pages.map((page) => ({
-          id: page.id,
-          layouts: page.layouts,
-          items: page.items
-            .filter((item) => item.type !== "board_summary")
-            .map((item) => {
-              if (item.type === "image") {
-                return {
-                  id: item.id,
-                  type: "image" as const,
-                  mimeType: item.mimeType,
-                  size: item.size,
-                  caption: item.caption,
-                };
-              }
-              return item;
-            }),
-        })),
-      };
-
-      form.set("payload", JSON.stringify(payload));
-      const itemCount = payload.pages.reduce((n, page) => n + page.items.length, 0);
-      const title = getBoardTitle(payload.pages);
-
-      const hasImages = pages.some((page) => page.items.some((item) => item.type === "image"));
-      if (!hasImages) {
-        const tinyCanvas: SharedCanvasData = {
-          id: "tiny",
-          author: payload.author || "Anonymous",
-          authorProfile: payload.authorProfile,
-          pages: payload.pages.map((page) => ({
-            id: page.id,
-            layouts: page.layouts,
-            items: page.items.filter(
-              (item): item is UrlItem | NoteItem => item.type === "url" || item.type === "note"
-            ),
-          })),
-          ...(generation ? { generation } : {}),
-          createdAt: new Date().toISOString(),
-        };
-        const tinyUrl = await createTinyShareUrl(tinyCanvas, window.location.origin);
-        if (tinyUrl) {
-          clearLastSharedBoard();
-          setHasLastSharedBoard(false);
-          saveBoardHistory({
-            id: `tiny:${Date.now()}`,
-            kind: "tiny",
-            title,
-            subtitle: getHistorySubtitle("tiny", tinyCanvas.pages.length, itemCount),
-            shareUrl: tinyUrl,
-            createdAt: tinyCanvas.createdAt,
-            itemCount,
-            pageCount: tinyCanvas.pages.length,
-            canvas: tinyCanvas,
-          });
-          setHistory(getBoardHistory());
-          await finishShare(tinyUrl);
-          return;
-        }
-      }
-
-      for (const page of pages) {
-        for (const item of page.items) {
-          if (item.type === "board_summary") continue;
-          if (isDraftImageItem(item)) {
-            form.set(`image:${item.id}`, item.file, item.file.name || `${item.id}.bin`);
-          }
-        }
-      }
-
-      const res = await fetch("/api/share", { method: "POST", body: form });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "Failed to share" }));
-        setShareState("idle");
-        notify.error(err.error || "Failed to share");
-        return;
-      }
-      const { id, deleteToken } = (await res.json()) as ShareResponse;
-      const shareUrl = `${window.location.origin}/c/${id}`;
-      saveLastSharedBoard({ id, deleteToken, shareUrl });
-      setHasLastSharedBoard(true);
-      saveBoardHistory({
-        id,
-        kind: "stored",
-        title,
-        subtitle: getHistorySubtitle("stored", payload.pages.length, itemCount),
-        shareUrl,
-        createdAt: new Date().toISOString(),
-        itemCount,
-        pageCount: payload.pages.length,
-      });
-      setHistory(getBoardHistory());
-      await finishShare(shareUrl);
-    } catch (error) {
-      setShareState("idle");
-      notify.error(error instanceof Error ? error.message : "Failed to share");
-    }
-  }, [pages, generation, shareState, finishShare]);
-
-  const shareLocked = useCallback(
-    async (pin: string) => {
-      if (lockedShareBusy || shareState === "sharing") return;
-      setLockedShareBusy(true);
-      setShareState("sharing");
-      try {
-        const id = createLockedShareId();
-        const createdAt = new Date().toISOString();
-        const imageUploads: LockedImageUpload[] = [];
-        const securePages: SharedCanvasData["pages"] = [];
-
-        for (const page of pages) {
-          const items: SharedCanvasData["pages"][number]["items"] = [];
-          for (const item of page.items) {
-            if (item.type === "board_summary") continue;
-            if (item.type !== "image") {
-              items.push(item);
-              continue;
-            }
-
-            const key = `images/${id}/${page.id}/${item.id}`;
-            const source = isDraftImageItem(item)
-              ? item.file
-              : await fetch(item.url).then((res) => {
-                  if (!res.ok) throw new Error("Could not prepare image for locked share");
-                  return res.blob();
-                });
-            imageUploads.push({ id: item.id, pageId: page.id, key, file: source });
-            items.push({
-              id: item.id,
-              type: "image",
-              url: "",
-              objectKey: key,
-              mimeType: item.mimeType,
-              size: item.size,
-              caption: item.caption,
-            });
-          }
-          securePages.push({ id: page.id, layouts: page.layouts, items });
-        }
-
-        const itemCount = securePages.reduce((n, page) => n + page.items.length, 0);
-        const title = getBoardTitle(securePages);
-        const canvas: SharedCanvasData = {
-          id,
-          author: getName() || "Anonymous",
-          authorProfile: getProfile(),
-          pages: securePages,
-          ...(generation ? { generation } : {}),
-          createdAt,
-        };
-        const locked = await createLockedSharePackage(pin, canvas, imageUploads);
-        const form = new FormData();
-        form.set("pin", pin);
-        form.set("encryptedPayload", JSON.stringify(locked.envelope));
-        for (const file of locked.files) {
-          form.set(
-            `encrypted-image:${file.id}`,
-            new File([file.data], `${file.id}.bin`, { type: "application/octet-stream" })
-          );
-        }
-
-        const res = await fetch("/api/share", { method: "POST", body: form });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({ error: "Failed to create locked share" }));
-          throw new Error(err.error || "Failed to create locked share");
-        }
-        const { id: shareId, deleteToken } = (await res.json()) as ShareResponse;
-        const shareUrl = `${window.location.origin}/c/${shareId}`;
-        saveLastSharedBoard({ id: shareId, deleteToken, shareUrl });
-        setHasLastSharedBoard(true);
-        saveBoardHistory({
-          id: shareId,
-          kind: "locked",
-          title,
-          subtitle: getHistorySubtitle("locked", securePages.length, itemCount),
-          shareUrl,
-          createdAt,
-          itemCount,
-          pageCount: securePages.length,
-        });
-        setHistory(getBoardHistory());
-        setLockedShareOpen(false);
-        await finishShare(shareUrl);
-      } catch (error) {
-        setShareState("idle");
-        notify.error(error instanceof Error ? error.message : "Failed to create locked share");
-      } finally {
-        setLockedShareBusy(false);
-      }
-    },
-    [pages, generation, lockedShareBusy, shareState, finishShare]
-  );
-
-  const deleteLastShare = useCallback(async () => {
-    const lastShare = getLastSharedBoard();
-    if (!lastShare) {
-      notify.error("No saved share to delete");
-      setHasLastSharedBoard(false);
-      return;
-    }
-
-    setIsDeletingShare(true);
-    try {
-      const res = await fetch(`/api/share?id=${encodeURIComponent(lastShare.id)}`, {
-        method: "DELETE",
-        headers: { "X-Delete-Token": lastShare.deleteToken },
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "Failed to delete share" }));
-        notify.error(err.error || "Failed to delete share");
-        return;
-      }
-
-      clearLastSharedBoard();
-      setHasLastSharedBoard(false);
-      notify.success("Last shared board deleted");
-    } catch {
-      notify.error("Failed to delete share");
-    } finally {
-      setIsDeletingShare(false);
-    }
-  }, []);
-
-  const openHistoryEntry = useCallback(
-    (entry: BoardHistoryEntry) => {
-      if (entry.canvas && Array.isArray(entry.canvas.pages)) {
-        setPages(pagesFromHistoryCanvas(entry.canvas));
-        setGeneration(entry.canvas.generation ?? null);
-        setSelectedIds([]);
-        navigate({ search: {}, replace: false });
-        notify.success("Board restored");
-        return;
-      }
-      if (entry.kind === "tiny") {
-        notify.error("This local history entry cannot be restored");
-        return;
-      }
-      window.open(entry.shareUrl, "_blank", "noopener,noreferrer");
-    },
-    [navigate]
-  );
-
-  const removeHistoryEntry = useCallback((id: string) => {
-    removeBoardHistoryEntry(id);
-    setHistory(getBoardHistory());
-  }, []);
 
   const handleDropData = useCallback(
     (data: DataTransfer) => {
@@ -1020,7 +692,7 @@ export function Home() {
           generation?.overall_summary.title ||
           "";
       } else if (selected.type === "image")
-        text = "url" in selected ? selected.url : selected.caption ?? selected.file.name;
+        text = isDraftImageItem(selected) ? selected.caption ?? selected.file.name : selected.url;
       void copyText(text).then((copied) =>
         copied ? notify.success("Copied") : notify.error("Couldn't copy")
       );
@@ -1106,7 +778,7 @@ export function Home() {
         history={history}
         onChangePage={setActivePage}
         onAddPage={addPage}
-        onAddImage={addImage}
+        onAddImage={(file) => void addImage(file)}
         onAddNote={addNote}
         onGenerate={generate}
         onShare={() => setLockedShareOpen(true)}

@@ -1,8 +1,9 @@
 import { useEffect } from "react";
 
 /**
- * The ONLY wrapper around useEffect allowed in this codebase. Runs once on mount.
- * Components must never call useEffect directly — see AGENTS.md for the rules.
+ * Convenience wrapper for one-shot mount effects with empty deps. Use plain
+ * `useEffect` when you have actual dependencies; reach for this only to make
+ * the "runs once" intent explicit at the call site.
  */
 export function useMountEffect(effect: () => void | (() => void)) {
   // eslint-disable-next-line react-hooks/exhaustive-deps

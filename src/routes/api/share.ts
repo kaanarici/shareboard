@@ -6,24 +6,32 @@ import {
   getObjectKeyFromPublicUrlAsync,
   getObjectResponse,
   getObjectText,
+  isSafeObjectKey,
   putBuffer,
   putObject,
 } from "@/lib/r2";
 import { takeRateLimit } from "@/lib/rate-limit";
+import {
+  SANITIZE_LIMITS,
+  sanitizeAuthorProfile,
+  sanitizeGeneration,
+  sanitizePublicCanvasManifest,
+  sanitizeShareRequestPayload,
+  trimText,
+} from "@/lib/canvas-sanitize";
 import type {
-  AuthorProfile,
   Canvas,
   EncryptedCanvasEnvelope,
   EncryptedShareImage,
-  GenerateResponse,
-  GridLayouts,
-  OGData,
-  Platform,
+  ShareCreateResponse,
+  ShareRequestImageItem,
+  ShareRequestItem,
+  ShareRequestPayload,
   StoredCanvas,
   SharedBoardPage,
   SharedCanvasItem,
-  UrlItem,
 } from "@/lib/types";
+import { isEncryptedCanvas } from "@/lib/types";
 
 const SHARE_LIMITS = {
   maxPages: 12,
@@ -31,41 +39,24 @@ const SHARE_LIMITS = {
   maxImages: 32,
   maxImageBytes: 4 * 1024 * 1024,
   maxTotalImageBytes: 75 * 1024 * 1024,
-  maxAuthorChars: 80,
-  maxUrlChars: 4096,
-  maxNoteChars: 20000,
-  maxSummaryChars: 12000,
-  maxSummaryItemChars: 800,
-  maxTags: 8,
-  maxOgTextChars: 300,
-  maxOgImageChars: 2048,
 } as const;
-
-const PLATFORMS = new Set<Platform>([
-  "twitter",
-  "linkedin",
-  "instagram",
-  "youtube",
-  "reddit",
-  "threads",
-  "facebook",
-  "tiktok",
-  "website",
-]);
-
-type SharePayload = {
-  author?: unknown;
-  authorProfile?: unknown;
-  generation?: unknown;
-  pages?: unknown;
-};
 
 type EncryptedSharePayload = Omit<EncryptedCanvasEnvelope, "deleteTokenHash">;
 
-const MAX_SOCIAL_URL = 2048;
 const MANIFEST_CACHE_CONTROL = "public, max-age=3600, stale-while-revalidate=86400";
 const LOCKED_PIN_ITERATIONS = 100_000;
 const pbkdf2Async = promisify(pbkdf2);
+
+class ShareError extends Error {
+  constructor(message: string, public readonly status: number) {
+    super(message);
+    this.name = "ShareError";
+  }
+}
+
+function badRequest(message: string): never {
+  throw new ShareError(message, 400);
+}
 
 function createShareId() {
   return randomBytes(18).toString("base64url");
@@ -111,30 +102,15 @@ function isSocialHost(url: string, kind: "x" | "instagram" | "linkedin"): boolea
   return false;
 }
 
-function sanitizeAuthorProfile(value: unknown): AuthorProfile | undefined {
-  if (!value || typeof value !== "object") return undefined;
-  const o = value as Record<string, unknown>;
-  const out: AuthorProfile = {};
-
-  const xUrl = keepHttpUrl(o.xUrl, MAX_SOCIAL_URL);
-  if (xUrl && isSocialHost(xUrl, "x")) out.xUrl = xUrl;
-
-  const instagramUrl = keepHttpUrl(o.instagramUrl, MAX_SOCIAL_URL);
-  if (instagramUrl && isSocialHost(instagramUrl, "instagram")) out.instagramUrl = instagramUrl;
-
-  const linkedinUrl = keepHttpUrl(o.linkedinUrl, MAX_SOCIAL_URL);
-  if (linkedinUrl && isSocialHost(linkedinUrl, "linkedin")) out.linkedinUrl = linkedinUrl;
-
-  return Object.keys(out).length ? out : undefined;
+/** Server-side wrapper adding host validation on top of the shared sanitizer. */
+function sanitizeStrictAuthorProfile(value: unknown) {
+  const profile = sanitizeAuthorProfile(value);
+  if (!profile) return undefined;
+  if (profile.xUrl && !isSocialHost(profile.xUrl, "x")) delete profile.xUrl;
+  if (profile.instagramUrl && !isSocialHost(profile.instagramUrl, "instagram")) delete profile.instagramUrl;
+  if (profile.linkedinUrl && !isSocialHost(profile.linkedinUrl, "linkedin")) delete profile.linkedinUrl;
+  return Object.keys(profile).length ? profile : undefined;
 }
-
-type ShareImageItem = {
-  id: string;
-  type: "image";
-  mimeType?: string;
-  size?: number;
-  caption?: string;
-};
 
 function getClientIp(request: Request) {
   return (
@@ -155,21 +131,6 @@ function isSameOrigin(request: Request): boolean {
   if (!origin) return true;
   const expected = new URL(request.url).origin;
   return origin === expected;
-}
-
-function trimText(value: unknown, max: number) {
-  return typeof value === "string" ? value.trim().slice(0, max) : "";
-}
-
-function keepHttpUrl(value: unknown, max: number) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim().slice(0, max);
-  try {
-    const url = new URL(trimmed);
-    return url.protocol === "http:" || url.protocol === "https:" ? url.toString() : null;
-  } catch {
-    return null;
-  }
 }
 
 function hashToken(token: string) {
@@ -208,168 +169,66 @@ async function verifyPin(pin: string, verifier: NonNullable<EncryptedCanvasEnvel
   return expected.byteLength === actual.byteLength && timingSafeEqual(expected, actual);
 }
 
-function sanitizeOgData(value: unknown): OGData | undefined {
-  if (!value || typeof value !== "object") return undefined;
-  const og = value as Record<string, unknown>;
-  const title = trimText(og.title, SHARE_LIMITS.maxOgTextChars);
-  const description = trimText(og.description, SHARE_LIMITS.maxOgTextChars);
-  const image = keepHttpUrl(og.image, SHARE_LIMITS.maxOgImageChars);
-  const siteName = trimText(og.siteName, 120);
-  const author = trimText(og.author, 120);
-
-  if (!title && !description && !image && !siteName && !author) return undefined;
-  return {
-    ...(title ? { title } : {}),
-    ...(description ? { description } : {}),
-    ...(image ? { image } : {}),
-    ...(siteName ? { siteName } : {}),
-    ...(author ? { author } : {}),
-  };
-}
-
-function sanitizeLayouts(value: unknown): GridLayouts | undefined {
-  if (!value || typeof value !== "object") return undefined;
-
-  const sanitizeList = (input: unknown) =>
-    Array.isArray(input)
-      ? input
-          .map((entry) => {
-            if (!entry || typeof entry !== "object") return null;
-            const item = entry as Record<string, unknown>;
-            const i = trimText(item.i, 80);
-            const x = Number(item.x);
-            const y = Number(item.y);
-            const w = Number(item.w);
-            const h = Number(item.h);
-            if (!i || ![x, y, w, h].every(Number.isFinite)) return null;
-            return {
-              i,
-              x: Math.max(0, Math.floor(x)),
-              y: Math.max(0, Math.floor(y)),
-              w: Math.max(1, Math.floor(w)),
-              h: Math.max(1, Math.floor(h)),
-            };
-          })
-          .filter((entry): entry is NonNullable<typeof entry> => !!entry)
-      : [];
-
-  const layouts = value as Record<string, unknown>;
-  const lg = sanitizeList(layouts.lg);
-  const sm = sanitizeList(layouts.sm);
-  if (lg.length === 0 && sm.length === 0) return undefined;
-  return { lg, sm };
-}
-
-function sanitizeGeneration(value: unknown): GenerateResponse | undefined {
-  if (!value || typeof value !== "object") return undefined;
-  const input = value as Record<string, unknown>;
-  const itemSummaries = Array.isArray(input.item_summaries)
-    ? input.item_summaries
-        .map((entry) => {
-          if (!entry || typeof entry !== "object") return null;
-          const item = entry as Record<string, unknown>;
-          const item_id = trimText(item.item_id, 80);
-          const title = trimText(item.title, 160);
-          const summary = trimText(item.summary, SHARE_LIMITS.maxSummaryItemChars);
-          if (!item_id || !title || !summary) return null;
-          return { item_id, title, summary };
-        })
-        .filter((entry): entry is NonNullable<typeof entry> => !!entry)
-    : [];
-
-  const overall = input.overall_summary;
-  if (!overall || typeof overall !== "object") {
-    return itemSummaries.length > 0
-      ? {
-          item_summaries: itemSummaries,
-          overall_summary: { title: "Shareboard", explanation: "", tags: [] },
-        }
-      : undefined;
+function parsePayload(raw: string | undefined): ShareRequestPayload {
+  if (!raw) badRequest("Missing payload");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch {
+    badRequest("Invalid payload JSON");
   }
-
-  const summary = overall as Record<string, unknown>;
-  return {
-    item_summaries: itemSummaries,
-    overall_summary: {
-      title: trimText(summary.title, 160) || "Shareboard",
-      explanation: trimText(summary.explanation, SHARE_LIMITS.maxSummaryChars),
-      tags: Array.isArray(summary.tags)
-        ? summary.tags
-            .map((tag) => trimText(tag, 40))
-            .filter(Boolean)
-            .slice(0, SHARE_LIMITS.maxTags)
-        : [],
-    },
-  };
-}
-
-function sanitizeUrlItem(value: Record<string, unknown>): UrlItem | null {
-  const id = trimText(value.id, 80);
-  const url = keepHttpUrl(value.url, SHARE_LIMITS.maxUrlChars);
-  const platform = trimText(value.platform, 40);
-  if (!id || !url || !PLATFORMS.has(platform as Platform)) return null;
-
-  return {
-    id,
-    type: "url",
-    url,
-    platform: platform as Platform,
-    ogData: sanitizeOgData(value.ogData),
-  };
-}
-
-function sanitizeNoteItem(value: Record<string, unknown>) {
-  const id = trimText(value.id, 80);
-  const text = trimText(value.text, SHARE_LIMITS.maxNoteChars);
-  if (!id || !text) return null;
-  return { id, type: "note" as const, text };
-}
-
-function sanitizeImageItem(value: Record<string, unknown>): ShareImageItem | null {
-  const id = trimText(value.id, 80);
-  const mimeType = trimText(value.mimeType, 120) || undefined;
-  const size = Number(value.size);
-  const caption = trimText(value.caption, 300) || undefined;
-  if (!id) return null;
-  return {
-    id,
-    type: "image",
-    mimeType,
-    ...(Number.isFinite(size) && size > 0 ? { size: Math.floor(size) } : {}),
-    caption,
-  };
-}
-
-function parsePayload(raw: string | undefined) {
-  if (!raw) throw new Error("Missing payload");
-  const payload = JSON.parse(raw) as SharePayload;
-  if (!Array.isArray(payload.pages) || payload.pages.length === 0) {
-    throw new Error("Board must include at least one page");
+  const payload = sanitizeShareRequestPayload(parsed);
+  if (!payload) {
+    badRequest("Board must include at least one page");
   }
   if (payload.pages.length > SHARE_LIMITS.maxPages) {
-    throw new Error(`Board is too large (max ${SHARE_LIMITS.maxPages} pages)`);
+    badRequest(`Board is too large (max ${SHARE_LIMITS.maxPages} pages)`);
   }
   return payload;
 }
 
+function parseUnlockRequest(value: unknown): { id: string; pin: string } | null {
+  if (!value || typeof value !== "object") return null;
+  const body = value as Record<string, unknown>;
+  if (body.action !== "unlock") return null;
+  const id = keepToken(body.id, 80);
+  const pin = cleanPin(body.pin);
+  return id && pin.length === 6 ? { id, pin } : null;
+}
+
+function parseStoredJson(raw: string): unknown | null {
+  try {
+    return JSON.parse(raw) as unknown;
+  } catch {
+    return null;
+  }
+}
+
 function parseEncryptedPayload(raw: string | undefined): EncryptedSharePayload {
-  if (!raw) throw new Error("Missing encrypted payload");
-  const payload = JSON.parse(raw) as Record<string, unknown>;
+  if (!raw) badRequest("Missing encrypted payload");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch {
+    badRequest("Invalid encrypted payload JSON");
+  }
+  if (!parsed || typeof parsed !== "object") badRequest("Invalid encrypted payload");
+  const payload = parsed as Record<string, unknown>;
   const id = keepToken(payload.id, 80);
-  if (!id || id.length < 16) throw new Error("Invalid encrypted board id");
+  if (!id || id.length < 16) badRequest("Invalid encrypted board id");
   if (payload.encrypted !== true || payload.v !== 1 || payload.kdf !== "PBKDF2-SHA-256") {
-    throw new Error("Invalid encrypted board");
+    badRequest("Invalid encrypted board");
   }
 
   const iterations = Number(payload.iterations);
   if (!Number.isFinite(iterations) || iterations < 100_000 || iterations > 1_000_000) {
-    throw new Error("Invalid encryption settings");
+    badRequest("Invalid encryption settings");
   }
 
   const salt = keepToken(payload.salt, 128);
   const iv = keepToken(payload.iv, 128);
   const data = keepToken(payload.data, 25_000_000);
-  if (!salt || !iv || !data) throw new Error("Invalid encrypted board");
+  if (!salt || !iv || !data) badRequest("Invalid encrypted board");
 
   const images = Array.isArray(payload.images)
     ? payload.images.map((entry) => {
@@ -400,13 +259,13 @@ function parseEncryptedPayload(raw: string | undefined): EncryptedSharePayload {
       })
     : [];
 
-  if (images.some((image) => !image)) throw new Error("Invalid encrypted image");
+  if (images.some((image) => !image)) badRequest("Invalid encrypted image");
   if (images.length > SHARE_LIMITS.maxImages) {
-    throw new Error(`Too many images (max ${SHARE_LIMITS.maxImages})`);
+    badRequest(`Too many images (max ${SHARE_LIMITS.maxImages})`);
   }
   const totalBytes = images.reduce((sum, image) => sum + (image?.size ?? 0), 0);
   if (totalBytes > SHARE_LIMITS.maxTotalImageBytes) {
-    throw new Error(`Images exceed ${Math.floor(SHARE_LIMITS.maxTotalImageBytes / 1024 / 1024)} MB total`);
+    badRequest(`Images exceed ${Math.floor(SHARE_LIMITS.maxTotalImageBytes / 1024 / 1024)} MB total`);
   }
 
   return {
@@ -429,63 +288,43 @@ type ImageCounters = { count: number; bytes: number };
 async function buildSharedItems(
   canvasId: string,
   pageId: string,
-  rawItems: unknown[],
+  rawItems: ShareRequestItem[],
   files: Map<string, File>,
   uploadedKeys: string[],
   counters: ImageCounters
 ): Promise<SharedCanvasItem[]> {
   if (rawItems.length > SHARE_LIMITS.maxItemsPerPage) {
-    throw new Error(`A page can hold at most ${SHARE_LIMITS.maxItemsPerPage} items`);
+    badRequest(`A page can hold at most ${SHARE_LIMITS.maxItemsPerPage} items`);
   }
   const items: SharedCanvasItem[] = [];
 
-  for (const rawItem of rawItems) {
-    if (!rawItem || typeof rawItem !== "object") {
-      throw new Error("Invalid board item");
-    }
-
-    const item = rawItem as Record<string, unknown>;
-    const type = trimText(item.type, 20);
-
-    if (type === "board_summary") {
+  for (const item of rawItems) {
+    if (item.type === "url" || item.type === "note") {
+      items.push(item);
       continue;
     }
 
-    if (type === "url") {
-      const sanitized = sanitizeUrlItem(item);
-      if (!sanitized) throw new Error("Invalid URL item");
-      items.push(sanitized);
-      continue;
-    }
-
-    if (type === "note") {
-      const sanitized = sanitizeNoteItem(item);
-      if (!sanitized) throw new Error("Invalid note item");
-      items.push(sanitized);
-      continue;
-    }
-
-    if (type === "image") {
+    if (item.type === "image") {
       counters.count += 1;
       if (counters.count > SHARE_LIMITS.maxImages) {
-        throw new Error(`Too many images (max ${SHARE_LIMITS.maxImages})`);
+        badRequest(`Too many images (max ${SHARE_LIMITS.maxImages})`);
       }
 
-      const sanitized = sanitizeImageItem(item);
-      if (!sanitized) throw new Error("Invalid image item");
+      const sanitized: ShareRequestImageItem = item;
       const file = files.get(sanitized.id);
-      if (!file) throw new Error(`Missing image upload for item ${sanitized.id}`);
-      if (!file.type.startsWith("image/")) throw new Error("Only image uploads are allowed");
+      if (!file) badRequest(`Missing image upload for item ${sanitized.id}`);
+      if (!file.type.startsWith("image/")) badRequest("Only image uploads are allowed");
       if (file.size > SHARE_LIMITS.maxImageBytes) {
-        throw new Error(`Image ${sanitized.id} exceeds ${Math.floor(SHARE_LIMITS.maxImageBytes / 1024 / 1024)} MB`);
+        badRequest(`Image ${sanitized.id} exceeds ${Math.floor(SHARE_LIMITS.maxImageBytes / 1024 / 1024)} MB`);
       }
 
       counters.bytes += file.size;
       if (counters.bytes > SHARE_LIMITS.maxTotalImageBytes) {
-        throw new Error(`Images exceed ${Math.floor(SHARE_LIMITS.maxTotalImageBytes / 1024 / 1024)} MB total`);
+        badRequest(`Images exceed ${Math.floor(SHARE_LIMITS.maxTotalImageBytes / 1024 / 1024)} MB total`);
       }
 
       const key = `images/${canvasId}/${pageId}/${sanitized.id}`;
+      if (!isSafeObjectKey(key)) badRequest("Invalid image id");
       const bytes = Buffer.from(await file.arrayBuffer());
       const mimeType = file.type || sanitized.mimeType || "application/octet-stream";
       const url = await putBuffer(key, bytes, mimeType, "public, max-age=31536000, immutable");
@@ -501,8 +340,6 @@ async function buildSharedItems(
       });
       continue;
     }
-
-    throw new Error("Unsupported board item");
   }
 
   return items;
@@ -510,31 +347,20 @@ async function buildSharedItems(
 
 async function buildSharedPages(
   canvasId: string,
-  rawPages: unknown[],
+  rawPages: ShareRequestPayload["pages"],
   files: Map<string, File>,
   uploadedKeys: string[]
 ): Promise<SharedBoardPage[]> {
   const counters: ImageCounters = { count: 0, bytes: 0 };
   const pages: SharedBoardPage[] = [];
 
-  for (let i = 0; i < rawPages.length; i++) {
-    const raw = rawPages[i];
-    if (!raw || typeof raw !== "object") {
-      throw new Error(`Invalid page at index ${i}`);
-    }
-    const page = raw as Record<string, unknown>;
-    const id = trimText(page.id, 80);
-    if (!id) throw new Error(`Page at index ${i} missing id`);
-
-    const rawItems = Array.isArray(page.items) ? page.items : [];
-    const items = await buildSharedItems(canvasId, id, rawItems, files, uploadedKeys, counters);
-    const layouts = sanitizeLayouts(page.layouts);
-
-    pages.push({ id, items, ...(layouts ? { layouts } : {}) });
+  for (const page of rawPages) {
+    const items = await buildSharedItems(canvasId, page.id, page.items, files, uploadedKeys, counters);
+    pages.push({ id: page.id, items, ...(page.layouts ? { layouts: page.layouts } : {}) });
   }
 
   if (!pages.some((p) => p.items.length > 0)) {
-    throw new Error("Board must include at least one item");
+    badRequest("Board must include at least one item");
   }
 
   return pages;
@@ -551,15 +377,11 @@ export const Route = createFileRoute("/api/share")({
         const contentType = request.headers.get("content-type") || "";
         if (contentType.includes("application/json")) {
           try {
-            const body = (await request.json()) as Record<string, unknown>;
-            if (body.action !== "unlock") {
+            const unlock = parseUnlockRequest(await request.json().catch(() => null));
+            if (!unlock) {
               return Response.json({ error: "Invalid request" }, { status: 400 });
             }
-            const id = keepToken(body.id, 80);
-            const pin = cleanPin(body.pin);
-            if (!id || pin.length !== 6) {
-              return Response.json({ error: "Invalid PIN" }, { status: 400 });
-            }
+            const { id, pin } = unlock;
             const rate = takeRateLimit(`share-unlock:${id}:${ip}`, 5, 10 * 60 * 1000);
             const globalRate = takeRateLimit(`share-unlock-board:${id}`, 30, 10 * 60 * 1000);
             if (!rate.ok || !globalRate.ok) {
@@ -571,7 +393,10 @@ export const Route = createFileRoute("/api/share")({
 
             const raw = await getObjectText(await lockedCanvasKey(id));
             if (!raw) return Response.json({ error: "Board not found" }, { status: 404 });
-            const canvas = JSON.parse(raw) as EncryptedCanvasEnvelope;
+            const canvas = parseStoredJson(raw);
+            if (!isEncryptedCanvas(canvas)) {
+              return Response.json({ error: "Board not found" }, { status: 404 });
+            }
             if (!canvas.pinVerifier || !(await verifyPin(pin, canvas.pinVerifier))) {
               return Response.json({ error: "Invalid PIN" }, { status: 403 });
             }
@@ -599,10 +424,10 @@ export const Route = createFileRoute("/api/share")({
           if (encryptedRaw) {
             const payload = parseEncryptedPayload(encryptedRaw);
             const pin = cleanPin(form.get("pin"));
-            if (pin.length !== 6) throw new Error("Invalid PIN");
+            if (pin.length !== 6) badRequest("Invalid PIN");
             const lockedKey = await lockedCanvasKey(payload.id);
             const existing = await getObjectText(lockedKey);
-            if (existing) throw new Error("Share id already exists");
+            if (existing) throw new ShareError("Share id already exists", 409);
 
             const files = new Map<string, File>();
             for (const [key, value] of form.entries()) {
@@ -613,10 +438,10 @@ export const Route = createFileRoute("/api/share")({
             const images = await Promise.all(
               payload.images.map(async (image) => {
                 const file = files.get(image.id);
-                if (!file) throw new Error(`Missing encrypted image upload for item ${image.id}`);
-                if (file.size !== image.size) throw new Error("Encrypted image size mismatch");
+                if (!file) badRequest(`Missing encrypted image upload for item ${image.id}`);
+                if (file.size !== image.size) badRequest("Encrypted image size mismatch");
                 if (file.size > SHARE_LIMITS.maxImageBytes + 1024) {
-                  throw new Error(`Image ${image.id} exceeds ${Math.floor(SHARE_LIMITS.maxImageBytes / 1024 / 1024)} MB`);
+                  badRequest(`Image ${image.id} exceeds ${Math.floor(SHARE_LIMITS.maxImageBytes / 1024 / 1024)} MB`);
                 }
                 const bytes = Buffer.from(await file.arrayBuffer());
                 const key = `locked-images/${randomBytes(24).toString("base64url")}`;
@@ -639,7 +464,7 @@ export const Route = createFileRoute("/api/share")({
               deleteTokenHash: hashToken(deleteToken),
             };
             await putObject(lockedKey, JSON.stringify(canvas), "no-store");
-            return Response.json({ id: payload.id, deleteToken });
+            return Response.json({ id: payload.id, deleteToken } satisfies ShareCreateResponse);
           }
 
           const payload = parsePayload(form.get("payload")?.toString());
@@ -652,13 +477,13 @@ export const Route = createFileRoute("/api/share")({
 
           const id = createShareId();
           const deleteToken = randomBytes(24).toString("base64url");
-          const pages = await buildSharedPages(id, payload.pages as unknown[], files, uploadedKeys);
+          const pages = await buildSharedPages(id, payload.pages, files, uploadedKeys);
 
-          const authorProfile = sanitizeAuthorProfile(payload.authorProfile);
+          const authorProfile = sanitizeStrictAuthorProfile(payload.authorProfile);
 
           const canvas: Canvas = {
             id,
-            author: trimText(payload.author, SHARE_LIMITS.maxAuthorChars) || "Anonymous",
+            author: trimText(payload.author, SANITIZE_LIMITS.maxAuthorChars) || "Anonymous",
             ...(authorProfile ? { authorProfile } : {}),
             pages,
             generation: sanitizeGeneration(payload.generation),
@@ -667,19 +492,16 @@ export const Route = createFileRoute("/api/share")({
           };
 
           await putObject(`canvases/${id}.json`, JSON.stringify(canvas), MANIFEST_CACHE_CONTROL);
-          return Response.json({ id, deleteToken });
+          return Response.json({ id, deleteToken } satisfies ShareCreateResponse);
         } catch (error) {
           await Promise.all(uploadedKeys.map((key) => deleteObject(key).catch(() => undefined)));
           const message = error instanceof Error ? error.message : "Failed to share board";
-          const status = /too many|exceed|invalid|missing|unsupported|must include|only image/i.test(message)
-            ? 400
-            : /already exists/i.test(message)
-              ? 409
-            : /storage is not configured/i.test(message)
-              ? 503
-              : /sharing storage/i.test(message)
-                ? 502
-                : 500;
+          let status = 500;
+          if (error instanceof ShareError) {
+            status = error.status;
+          } else if (message === "Sharing storage is not configured") {
+            status = 503;
+          }
           return Response.json({ error: message }, { status });
         }
       },
@@ -691,14 +513,16 @@ export const Route = createFileRoute("/api/share")({
         if (canvasId) {
           const publicRaw = await getObjectText(key);
           if (publicRaw) {
-            const canvas = JSON.parse(publicRaw) as StoredCanvas;
-            if ("encrypted" in canvas && canvas.encrypted === true) {
+            const canvas = parseStoredJson(publicRaw);
+            if (isEncryptedCanvas(canvas)) {
               return Response.json(
                 { id: canvasId, encrypted: true, locked: true },
                 { headers: { "Cache-Control": "no-store" } }
               );
             }
-            return new Response(publicRaw, {
+            const manifest = sanitizePublicCanvasManifest(canvas);
+            if (!manifest) return Response.json({ error: "Object not found" }, { status: 404 });
+            return Response.json(manifest, {
               headers: { "Content-Type": "application/json", "Cache-Control": MANIFEST_CACHE_CONTROL },
             });
           }
@@ -711,6 +535,9 @@ export const Route = createFileRoute("/api/share")({
         }
 
         if (!key.startsWith("images/") && !key.startsWith("locked-images/") && !key.startsWith("canvases/")) {
+          return Response.json({ error: "Invalid object key" }, { status: 400 });
+        }
+        if (!isSafeObjectKey(key)) {
           return Response.json({ error: "Invalid object key" }, { status: 400 });
         }
         const object = await getObjectResponse(key);
@@ -748,7 +575,11 @@ export const Route = createFileRoute("/api/share")({
             return Response.json({ error: "Board not found" }, { status: 404 });
           }
 
-          const canvas = JSON.parse(storedRaw) as StoredCanvas;
+          const parsed = parseStoredJson(storedRaw);
+          const canvas: StoredCanvas | null = isEncryptedCanvas(parsed)
+            ? parsed
+            : sanitizePublicCanvasManifest(parsed);
+          if (!canvas) return Response.json({ error: "Board not found" }, { status: 404 });
           if (!canvas.deleteTokenHash || canvas.deleteTokenHash !== hashToken(token)) {
             return Response.json({ error: "Invalid delete token" }, { status: 403 });
           }

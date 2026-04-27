@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { takeRateLimit } from "@/lib/rate-limit";
-import { fetchPublicUrl, BROWSER_UA } from "@/lib/safe-fetch";
+import { BROWSER_UA, PublicFetchError, fetchPublicUrl } from "@/lib/safe-fetch";
 
 const MAX_HTML_BYTES = 2 * 1024 * 1024;
 const HEAD_CLOSE = "</head>";
@@ -136,7 +136,7 @@ export const Route = createFileRoute("/api/og")({
           });
         } catch (error) {
           const message = error instanceof Error ? error.message : "Fetch failed";
-          const status = /private hosts|allowed|too large/i.test(message) ? 400 : 502;
+          const status = error instanceof PublicFetchError ? error.status : 502;
           return Response.json({ error: message }, { status });
         }
       },

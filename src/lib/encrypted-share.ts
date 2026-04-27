@@ -1,11 +1,15 @@
+import { base64UrlToBytes, bytesToBase64Url } from "@/lib/base64url";
+import { sanitizePublicCanvasManifest } from "@/lib/canvas-sanitize";
 import type { Canvas, EncryptedCanvasEnvelope, EncryptedShareImage } from "@/lib/types";
+
+export { base64UrlToBytes, bytesToBase64Url };
 
 export const LOCKED_SHARE_PIN_LENGTH = 6;
 export const LOCKED_SHARE_ITERATIONS = 100_000;
 
 type EncryptedBytes = {
   iv: string;
-  data: Uint8Array;
+  data: Uint8Array<ArrayBuffer>;
 };
 
 export type LockedImageUpload = {
@@ -35,24 +39,7 @@ export function isCompletePin(value: string) {
   return cleanPin(value).length === LOCKED_SHARE_PIN_LENGTH;
 }
 
-export function bytesToBase64Url(bytes: Uint8Array) {
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  }
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-}
-
-export function base64UrlToBytes(value: string) {
-  const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
-  const binary = atob(padded);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-}
-
-async function deriveKey(pin: string, salt: Uint8Array, iterations: number) {
+async function deriveKey(pin: string, salt: Uint8Array<ArrayBuffer>, iterations: number) {
   const material = await crypto.subtle.importKey("raw", encoder.encode(pin), "PBKDF2", false, [
     "deriveKey",
   ]);
@@ -65,13 +52,17 @@ async function deriveKey(pin: string, salt: Uint8Array, iterations: number) {
   );
 }
 
-async function encryptBytes(key: CryptoKey, bytes: Uint8Array): Promise<EncryptedBytes> {
+async function encryptBytes(key: CryptoKey, bytes: Uint8Array<ArrayBuffer>): Promise<EncryptedBytes> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const encrypted = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, bytes);
   return { iv: bytesToBase64Url(iv), data: new Uint8Array(encrypted) };
 }
 
-async function decryptBytes(key: CryptoKey, iv: string, data: string | Uint8Array) {
+async function decryptBytes(
+  key: CryptoKey,
+  iv: string,
+  data: string | Uint8Array<ArrayBuffer>,
+): Promise<Uint8Array<ArrayBuffer>> {
   const encrypted = typeof data === "string" ? base64UrlToBytes(data) : data;
   const decrypted = await crypto.subtle.decrypt(
     { name: "AES-GCM", iv: base64UrlToBytes(iv) },
@@ -120,18 +111,26 @@ export async function createLockedSharePackage(
   };
 }
 
+/**
+ * Decrypts an envelope into a `Canvas` whose image items reference blob URLs.
+ * Caller MUST invoke `dispose()` once the canvas is no longer rendered, or the
+ * blob URLs will hold their decrypted bytes in memory until tab close.
+ */
 export async function decryptLockedCanvas(
   envelope: EncryptedCanvasEnvelope,
   pin: string
-): Promise<{ canvas: Canvas; objectUrls: string[] }> {
+): Promise<{ canvas: Canvas; dispose: () => void }> {
   const key = await deriveKey(cleanPin(pin), base64UrlToBytes(envelope.salt), envelope.iterations);
   const canvasBytes = await decryptBytes(key, envelope.iv, envelope.data);
-  const canvas = JSON.parse(decoder.decode(canvasBytes)) as Canvas;
+  const canvas = JSON.parse(decoder.decode(canvasBytes)) as unknown;
   const byId = new Map(envelope.images.map((image) => [image.id, image] as const));
   const objectUrls: string[] = [];
 
   await Promise.all(
-    canvas.pages.flatMap((page) =>
+    (canvas && typeof canvas === "object" && Array.isArray((canvas as { pages?: unknown }).pages)
+      ? (canvas as Canvas).pages
+      : []
+    ).flatMap((page) =>
       page.items.map(async (item) => {
         if (item.type !== "image") return;
         const encrypted = byId.get(item.id);
@@ -150,7 +149,14 @@ export async function decryptLockedCanvas(
     )
   );
 
-  return { canvas, objectUrls };
+  const safeCanvas = sanitizePublicCanvasManifest(canvas, { allowBlobImageUrls: true });
+  if (!safeCanvas) throw new Error("Invalid locked board");
+
+  const dispose = () => {
+    while (objectUrls.length) URL.revokeObjectURL(objectUrls.pop()!);
+  };
+
+  return { canvas: safeCanvas, dispose };
 }
 
 export function withImageUrls(

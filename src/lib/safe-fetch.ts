@@ -6,6 +6,13 @@ export const BROWSER_UA =
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
+export class PublicFetchError extends Error {
+  constructor(message: string, public readonly status: number) {
+    super(message);
+    this.name = "PublicFetchError";
+  }
+}
+
 function isPrivateIp(address: string): boolean {
   if (address === "::1" || address === "0.0.0.0") return true;
   if (address.startsWith("fc") || address.startsWith("fd") || address.startsWith("fe80:")) return true;
@@ -29,15 +36,19 @@ function isPrivateIp(address: string): boolean {
 
 async function assertPublicUrl(value: string): Promise<URL> {
   const url = new URL(value);
-  if (!["http:", "https:"].includes(url.protocol)) throw new Error("Only http(s) URLs are allowed");
-  if (url.username || url.password) throw new Error("Authenticated URLs are not allowed");
+  if (!["http:", "https:"].includes(url.protocol)) {
+    throw new PublicFetchError("Only http(s) URLs are allowed", 400);
+  }
+  if (url.username || url.password) {
+    throw new PublicFetchError("Authenticated URLs are not allowed", 400);
+  }
   if (["localhost", "localhost.localdomain"].includes(url.hostname) || url.hostname.endsWith(".local")) {
-    throw new Error("Private hosts are not allowed");
+    throw new PublicFetchError("Private hosts are not allowed", 400);
   }
 
   const literal = isIP(url.hostname) ? url.hostname : null;
   if (literal && isPrivateIp(literal)) {
-    throw new Error("Private hosts are not allowed");
+    throw new PublicFetchError("Private hosts are not allowed", 400);
   }
 
   return url;
@@ -50,7 +61,7 @@ type PublicFetchResult = {
 
 function requestPublicUrl(url: URL, init: RequestInit): Promise<Response> {
   if (init.body) {
-    throw new Error("Public URL fetch does not support request bodies");
+    throw new PublicFetchError("Public URL fetch does not support request bodies", 400);
   }
   return fetch(url, {
     ...init,
@@ -71,10 +82,12 @@ export async function fetchPublicUrl(
       return { response, url: current.toString() };
     }
 
-    if (redirects >= maxRedirects) throw new Error("Too many redirects");
+    if (redirects >= maxRedirects) {
+      throw new PublicFetchError("Too many redirects", 502);
+    }
 
     const location = response.headers.get("location");
-    if (!location) throw new Error("Redirect missing location");
+    if (!location) throw new PublicFetchError("Redirect missing location", 502);
     current = await assertPublicUrl(new URL(location, current).toString());
   }
 }

@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { SharedCanvas } from "@/components/shared-canvas";
 import { decodeTinyShare, TINY_SHARE_PARAM } from "@/lib/tiny-share";
 import { useMountEffect } from "@/lib/use-mount-effect";
+import { readPageIndexFromUrl } from "@/lib/pagination";
 import type { Canvas } from "@/lib/types";
 
 type LoadState =
@@ -13,12 +14,6 @@ type LoadState =
 function readTinyPayload() {
   if (typeof window === "undefined") return null;
   return new URLSearchParams(window.location.hash.slice(1)).get(TINY_SHARE_PARAM);
-}
-
-function readInitialPageIndex() {
-  if (typeof window === "undefined") return 0;
-  const raw = Number(new URLSearchParams(window.location.search).get("page"));
-  return Number.isFinite(raw) && raw > 1 ? Math.floor(raw) - 1 : 0;
 }
 
 export const Route = createFileRoute("/s")({
@@ -60,7 +55,12 @@ function TinySharedPage() {
   });
 
   if (state.status === "ready") {
-    return <SharedCanvas canvas={state.canvas} initialPageIndex={readInitialPageIndex()} />;
+    return (
+      <SharedCanvas
+        canvas={state.canvas}
+        initialPageIndex={readPageIndexFromUrl(state.canvas.pages.length)}
+      />
+    );
   }
   if (state.status === "loading") {
     return <div className="flex h-dvh items-center justify-center text-sm text-muted-foreground">Loading board...</div>;

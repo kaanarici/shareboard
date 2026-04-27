@@ -1,4 +1,3 @@
-
 import type { CanvasItem, ItemSummary } from "@/lib/types";
 
 type ImageItem = Extract<CanvasItem, { type: "image" }>;
@@ -17,9 +16,7 @@ export function ImageCard({
   // - shared: `https://pub-.../images/<canvas>/<item>`
   // - draft: `blob:http://localhost:3000/<uuid>`
   const src = ("url" in item ? item.url : item.previewUrl) ?? "";
-  const isSvg =
-    item.mimeType === "image/svg+xml" ||
-    src.startsWith("blob:") && item.mimeType === "image/svg+xml";
+  const isSvg = item.mimeType === "image/svg+xml";
 
   const handleLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     if (!onMeasure) return;

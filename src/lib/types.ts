@@ -22,24 +22,27 @@ export interface UrlItem {
 export interface DraftImageItem {
   id: string;
   type: "image";
-  /** Local preview, e.g. `blob:http://localhost:3000/5d...`. Never persisted. */
+  /** Browser-only preview. Must not enter tiny shares, stored manifests, or locked envelopes. */
   previewUrl: string;
-  /** Browser file, e.g. `File{name:"screenshot.png", type:"image/png"}`. Never persisted. */
+  /** Browser-only file handle. The share pipeline uploads bytes separately. */
   file: File;
+  url?: never;
+  objectKey?: never;
   mimeType?: string;
   size?: number;
   caption?: string;
-  /** Natural pxW/pxH, measured on paste. Used for initial packing so spill-to-next-page decisions match reality. */
   aspect?: number;
 }
 
 export interface SharedImageItem {
   id: string;
   type: "image";
-  /** Public R2 URL, e.g. `https://pub-.../images/abc123/item1`. */
+  /** Public R2 URL, or a temporary blob URL after client-side locked-share decrypt. */
   url: string;
   /** Canonical R2 object key used for deletion, independent of the public URL shape. */
   objectKey?: string;
+  previewUrl?: never;
+  file?: never;
   mimeType?: string;
   size?: number;
   caption?: string;
@@ -59,17 +62,26 @@ export interface BoardSummaryItem {
   type: "board_summary";
 }
 
-export type CanvasItem =
+export type EditorCanvasItem =
   | UrlItem
   | DraftImageItem
   | SharedImageItem
   | NoteItem
   | BoardSummaryItem;
-export type SharedCanvasItem =
+export type CanvasItem = EditorCanvasItem;
+
+export type ShareableCanvasItem =
   | UrlItem
   | SharedImageItem
   | NoteItem
   | BoardSummaryItem;
+export type SharedCanvasItem = ShareableCanvasItem;
+
+export type ShareRequestImageItem = Pick<
+  SharedImageItem,
+  "id" | "type" | "mimeType" | "size" | "caption"
+>;
+export type ShareRequestItem = UrlItem | NoteItem | ShareRequestImageItem;
 
 export interface OGData {
   title?: string;
@@ -111,26 +123,45 @@ export interface AuthorProfile {
   linkedinUrl?: string;
 }
 
-export interface BoardPage {
+export interface EditorBoardPage {
   id: string;
-  items: CanvasItem[];
+  items: EditorCanvasItem[];
   layouts: GridLayouts;
 }
+export type BoardPage = EditorBoardPage;
 
-export interface SharedBoardPage {
+export interface ShareableBoardPage {
   id: string;
-  items: SharedCanvasItem[];
+  items: ShareableCanvasItem[];
   layouts?: GridLayouts;
 }
+export type SharedBoardPage = ShareableBoardPage;
 
-export interface Canvas {
+export interface PublicCanvasManifest {
   id: string;
   author: string;
   authorProfile?: AuthorProfile;
-  pages: SharedBoardPage[];
+  pages: ShareableBoardPage[];
   generation?: GenerateResponse;
   createdAt: string;
   deleteTokenHash?: string;
+}
+export type Canvas = PublicCanvasManifest;
+
+export interface ShareRequestPayload {
+  author?: unknown;
+  authorProfile?: unknown;
+  generation?: unknown;
+  pages: Array<{
+    id: string;
+    layouts?: GridLayouts;
+    items: ShareRequestItem[];
+  }>;
+}
+
+export interface ShareCreateResponse {
+  id: string;
+  deleteToken: string;
 }
 
 export interface EncryptedShareImage {
@@ -162,22 +193,66 @@ export interface EncryptedCanvasEnvelope {
   deleteTokenHash?: string;
 }
 
+/** Wire shape returned by GET /api/share when the board is encrypted but the
+ * client hasn't unlocked it yet. Never persisted — see `StoredCanvas`. */
 export interface LockedCanvasStub {
   id: string;
   encrypted: true;
   locked: true;
 }
 
-export type StoredCanvas = Canvas | EncryptedCanvasEnvelope | LockedCanvasStub;
+/** What the server actually persists in R2. */
+export type StoredCanvas = Canvas | EncryptedCanvasEnvelope;
 
-export function isEncryptedCanvas(value: StoredCanvas): value is EncryptedCanvasEnvelope {
-  return "encrypted" in value && value.encrypted === true && "data" in value;
+/** What `/api/share?key=canvases/<id>.json` can return: the stored manifest
+ * (public boards), or the locked stub (encrypted boards before unlock). */
+export type CanvasFetchResponse = Canvas | LockedCanvasStub;
+
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object";
 }
 
-export function isLockedCanvasStub(value: StoredCanvas): value is LockedCanvasStub {
-  return "encrypted" in value && value.encrypted === true && "locked" in value;
+export function isEncryptedCanvas(value: unknown): value is EncryptedCanvasEnvelope {
+  return (
+    isRecord(value) &&
+    value.encrypted === true &&
+    value.v === 1 &&
+    value.kdf === "PBKDF2-SHA-256" &&
+    typeof value.id === "string" &&
+    typeof value.data === "string" &&
+    typeof value.iv === "string" &&
+    typeof value.salt === "string" &&
+    typeof value.createdAt === "string" &&
+    typeof value.iterations === "number" &&
+    Array.isArray(value.images) &&
+    value.images.every(
+      (image) =>
+        isRecord(image) &&
+        typeof image.id === "string" &&
+        typeof image.pageId === "string" &&
+        typeof image.key === "string" &&
+        typeof image.url === "string" &&
+        typeof image.iv === "string" &&
+        typeof image.size === "number",
+    )
+  );
+}
+
+export function isLockedCanvasStub(value: unknown): value is LockedCanvasStub {
+  return isRecord(value) && value.encrypted === true && value.locked === true && typeof value.id === "string";
 }
 
 export function isDraftImageItem(item: CanvasItem): item is DraftImageItem {
   return item.type === "image" && "file" in item;
+}
+
+export function isShareCreateResponse(value: unknown): value is ShareCreateResponse {
+  return isRecord(value) && typeof value.id === "string" && typeof value.deleteToken === "string";
+}
+
+export type GenerateRequestImageItem = Pick<SharedImageItem, "id" | "type" | "caption">;
+export type GenerateRequestItem = UrlItem | NoteItem | GenerateRequestImageItem;
+
+export interface GenerateRequestPayload {
+  items: GenerateRequestItem[];
 }

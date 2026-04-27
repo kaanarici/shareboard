@@ -1,6 +1,8 @@
 # Shareboard
 
-A canvas for collecting URLs, notes, embeds, pasted SVG, and images, with optional AI summaries. Free side project — **not** a paid product. You bring your own [OpenAI](https://platform.openai.com/) key; it stays in the browser and is sent to the API only for generation.
+Shareboard is a browser-first canvas for collecting URLs, notes, embeds, pasted SVG, and images, with optional AI summaries. It has no accounts and no server-side board storage until you explicitly share. Free side project — **not** a paid product.
+
+You bring your own [OpenAI](https://platform.openai.com/) key. The key is stored in your browser and sent to Shareboard's generation API only when you ask for a summary.
 
 ## Run locally
 
@@ -17,18 +19,19 @@ Open [http://localhost:3000](http://localhost:3000), set a display name, optiona
 
 ## Configuration
 
-Media-backed shared boards use Cloudflare R2. Tiny text/URL-only boards can share as compressed URL fragments and do not require storage. Without R2 env vars, the editor and tiny shares still work.
+Shareboard has two storage paths:
+
+- Tiny text/URL-only shares are compressed into the URL fragment. They are storage-free and never hit R2.
+- Stored shares use Cloudflare R2 for immutable JSON manifests and image objects. Without R2 env vars, the editor and tiny shares still work.
 
 Copy `.env.example` → `.env` and fill in values:
 
-- `CLOUDFLARE_ACCOUNT_ID`
-- `CLOUDFLARE_API_TOKEN`
-- `R2_PUBLIC_URL`
+- `R2_PUBLIC_URL` (optional; enables direct public R2 image URLs)
 - `SHAREBOARD_LOCKED_STORAGE_SECRET` (required for production locked boards)
 
-On Cloudflare Workers, the app prefers the `SHAREBOARD_R2` bucket binding in `wrangler.jsonc`; the account ID/API token path is only a fallback for local or legacy deployments. `R2_PUBLIC_URL` is required as a Worker secret so shared image URLs can point directly at R2 instead of proxying through the app.
+Stored shares use the `SHAREBOARD_R2` bucket binding in `wrangler.jsonc`. Local development falls back to `.shareboard-storage` unless `SHAREBOARD_LOCAL_STORAGE=0` is set. `R2_PUBLIC_URL` can be set as a Worker secret so shared image URLs point directly at R2 instead of proxying through the app.
 
-Locked boards keep their encrypted manifest behind a server-derived storage key so the ciphertext is not downloadable before PIN verification. Set `SHAREBOARD_LOCKED_STORAGE_SECRET` to a long random value before enabling locked boards on a public deployment.
+Locked shares are encrypted in the browser with a 6-digit PIN before upload. The server stores only the encrypted envelope and encrypted image bytes, and keeps the ciphertext behind a server-derived storage key so it is not downloadable before PIN verification. Set `SHAREBOARD_LOCKED_STORAGE_SECRET` to a long random value before enabling locked boards on a public deployment.
 
 Do not commit account-specific URLs, tokens, bucket endpoints, API keys, or internal planning docs. This repository is intended to be public and self-hostable.
 
@@ -82,12 +85,21 @@ Cloudflare creates DNS records and certificates for Worker custom domains. Keep 
 
 ## Share Architecture
 
+- Draft boards live in browser state. Shareboard does not create an account, database row, or server board record while you edit.
 - Tiny text/URL-only boards are encoded into `/s#b=...` links using browser compression. The server stores nothing for those links.
-- Media-backed boards are stored in Cloudflare R2 as one cacheable JSON manifest at `canvases/{id}.json`.
-- Shared images are optimized in the browser, uploaded as separate R2 objects under `images/{id}/{itemId}`, and referenced by URL from the manifest.
+- Public media-backed boards are stored in Cloudflare R2 as one cacheable JSON manifest at `canvases/{id}.json`.
+- Shared images are optimized in the browser, uploaded as separate immutable R2 objects under `images/{id}/{pageId}/{itemId}`, and referenced by URL from the manifest.
+- Locked boards encrypt the manifest and images client-side before upload. The `/c/:id` page shows an unlock screen until the correct PIN returns the encrypted envelope.
 - The editor never persists local blob URLs or `File` objects.
 - Non-image files are intentionally rejected. This is a shareboard, not general file storage.
 - Stored R2 shares return a one-time delete token, stored locally in the browser for future deletion flows.
+
+## Trust Boundaries
+
+- Browser editor state may contain `File` handles and `blob:` preview URLs.
+- Share payloads contain only ids, text, URLs, layouts, captions, and image metadata; image bytes travel as separate multipart files.
+- Stored public manifests contain only sanitized shareable items and R2 image references.
+- Locked manifests are encrypted in the browser before upload; unlock responses return the encrypted envelope only after PIN verification.
 
 ## Stack
 

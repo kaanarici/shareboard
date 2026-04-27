@@ -1,7 +1,6 @@
 import { defineConfig, type Connect, type Plugin } from "vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import { cloudflare } from "@cloudflare/vite-plugin";
-import { nitro } from "nitro/vite";
 import viteReact from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import fs from "node:fs/promises";
@@ -75,8 +74,6 @@ export default defineConfig({
     cloudflare({ viteEnvironment: { name: "ssr" } }),
     tailwindcss(),
     tanstackStart(),
-    // Nitro emits the server bundle consumed by TanStack Start's deployment adapters.
-    nitro(),
     fontsourceNodeModulesWoff2DevServer(),
     viteReact(),
   ],

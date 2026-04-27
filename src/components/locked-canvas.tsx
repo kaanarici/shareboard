@@ -9,7 +9,7 @@ import {
   decryptLockedCanvas,
   isCompletePin,
 } from "@/lib/encrypted-share";
-import type { Canvas, EncryptedCanvasEnvelope } from "@/lib/types";
+import { isEncryptedCanvas, type Canvas } from "@/lib/types";
 
 export function LockedCanvas({
   id: boardId,
@@ -23,14 +23,9 @@ export function LockedCanvas({
   const [canvas, setCanvas] = useState<Canvas | null>(null);
   const [error, setError] = useState("");
   const [unlocking, setUnlocking] = useState(false);
-  const objectUrlsRef = useRef<string[]>([]);
+  const disposeRef = useRef<() => void>(() => {});
 
-  const revokeObjectUrls = () => {
-    objectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
-    objectUrlsRef.current = [];
-  };
-
-  useMountEffect(() => revokeObjectUrls);
+  useMountEffect(() => () => disposeRef.current());
 
   const unlock = async (value = pin) => {
     const nextPin = cleanPin(value);
@@ -38,16 +33,17 @@ export function LockedCanvas({
     setUnlocking(true);
     setError("");
     try {
-      revokeObjectUrls();
+      disposeRef.current();
       const res = await fetch("/api/share", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "unlock", id: boardId, pin: nextPin }),
       });
       if (!res.ok) throw new Error("Unlock failed");
-      const envelope = (await res.json()) as EncryptedCanvasEnvelope;
+      const envelope = (await res.json().catch(() => null)) as unknown;
+      if (!isEncryptedCanvas(envelope)) throw new Error("Unlock failed");
       const result = await decryptLockedCanvas(envelope, nextPin);
-      objectUrlsRef.current = result.objectUrls;
+      disposeRef.current = result.dispose;
       setCanvas(result.canvas);
     } catch {
       setPin("");

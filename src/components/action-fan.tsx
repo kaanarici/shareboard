@@ -118,7 +118,6 @@ function FanItem({
   // Project the tooltip along the same ray so it never overlaps the trigger
   // or neighboring items. Pure vertical items get a simple "above" tooltip.
   const sin = Math.sin(angle);
-  const cos = Math.cos(angle);
   const tooltipSide: "above" | "left" | "right" =
     Math.abs(sin) < 0.15 ? "above" : sin < 0 ? "left" : "right";
   let tooltipStyle: React.CSSProperties;
@@ -142,8 +141,6 @@ function FanItem({
       transform: "translateY(-50%)",
     };
   }
-  // Nudge top-arc labels up along the ray so they don't kiss the circles.
-  void cos;
 
   return (
     <motion.button

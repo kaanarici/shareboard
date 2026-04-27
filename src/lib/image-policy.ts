@@ -1,5 +1,3 @@
-"use client";
-
 export const IMAGE_POLICY = {
   maxInputBytes: 50 * 1024 * 1024,
   maxOutputBytes: 4 * 1024 * 1024,

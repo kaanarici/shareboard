@@ -54,7 +54,7 @@ export function Toolbar({
   history: BoardHistoryEntry[];
   onChangePage: (next: number) => void;
   onAddPage: () => void;
-  onAddImage: (file: File) => void | Promise<boolean>;
+  onAddImage: (file: File) => void;
   onAddNote: (text: string) => void;
   onGenerate: () => void;
   onShare: () => void;
@@ -139,11 +139,11 @@ export function Toolbar({
     setSettingsLi(p.linkedinUrl ?? "");
   };
 
-  // Re-hydrate settings inputs whenever the menu opens.
+  // Re-hydrate settings inputs whenever the menu opens. hydrateSettingsFields
+  // reads freshest store values on each call, so the stable identity isn't
+  // important here.
   useEffect(() => {
     if (settingsOpen) hydrateSettingsFields();
-    // hydrateSettingsFields uses freshest store values on each call
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settingsOpen]);
 
   const saveSettings = () => {
