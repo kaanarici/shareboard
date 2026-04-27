@@ -555,6 +555,7 @@ export const Route = createFileRoute("/api/share")({
           let id: string;
           let reuseImages: Map<string, StoredImageItem> | undefined;
           let priorImageKeys: string[] = [];
+          let priorPreviewUrl: string | undefined;
 
           if (isReplace) {
             const canvasKey = `canvases/${replaceId}.json`;
@@ -571,6 +572,7 @@ export const Route = createFileRoute("/api/share")({
             priorImageKeys = Array.from(reuseImages.values())
               .map((img) => img.objectKey)
               .filter((key): key is string => !!key);
+            priorPreviewUrl = priorCanvas.previewUrl;
           } else {
             id = createShareId();
           }
@@ -579,7 +581,12 @@ export const Route = createFileRoute("/api/share")({
           const pages = await buildSharedPages(id, payload.pages, files, uploadedKeys, reuseImages);
 
           const authorProfile = sanitizeStrictAuthorProfile(payload.authorProfile);
-          const previewUrl = await uploadPreview(id, form.get("preview"), uploadedKeys);
+          // On replace: a fresh preview overwrites the prior one; if no preview
+          // was uploaded (e.g. mobile share, where the live DOM is not desktop-
+          // shaped) we preserve the prior previewUrl so iMessage / Slack / etc.
+          // keep their cards.
+          const newPreviewUrl = await uploadPreview(id, form.get("preview"), uploadedKeys);
+          const previewUrl = newPreviewUrl ?? (isReplace ? priorPreviewUrl : undefined);
 
           const canvas: Canvas = {
             id,

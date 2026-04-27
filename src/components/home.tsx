@@ -151,6 +151,8 @@ export function Home() {
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importInput, setImportInput] = useState("");
   const [isImporting, setIsImporting] = useState(false);
+  const [pasteDialogOpen, setPasteDialogOpen] = useState(false);
+  const [pasteInput, setPasteInput] = useState("");
   const [saveState, setSaveState] = useState<"saved" | "saving" | "save">("saved");
   const lastSavedSigRef = useRef<string>("");
   const lockedDisposeRef = useRef<(() => void) | null>(null);
@@ -180,6 +182,11 @@ export function Home() {
   const openImportDialog = useCallback(() => {
     setImportInput("");
     setImportDialogOpen(true);
+  }, []);
+
+  const openPasteDialog = useCallback(() => {
+    setPasteInput("");
+    setPasteDialogOpen(true);
   }, []);
 
   const newBoard = useCallback(() => {
@@ -520,6 +527,15 @@ export function Home() {
     },
     [addItemWithSpill]
   );
+
+  const submitPasteDialog = useCallback(() => {
+    const value = pasteInput.trim();
+    if (!value) return;
+    if (isValidUrl(value)) void addUrl(value);
+    else addNote(value);
+    setPasteDialogOpen(false);
+    setPasteInput("");
+  }, [pasteInput, addUrl, addNote]);
 
   const removeItems = useCallback(
     (pageIndex: number, ids: string[]) => {
@@ -957,6 +973,7 @@ export function Home() {
         onAddPage={addPage}
         onAddImage={(file) => void addImage(file)}
         onAddNote={addNote}
+        onPasteLink={openPasteDialog}
         onImport={openImportDialog}
         onGenerate={generate}
         onShare={() => setLockedShareOpen(true)}
@@ -1052,6 +1069,37 @@ export function Home() {
             >
               {isImporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
               Import
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={pasteDialogOpen} onOpenChange={setPasteDialogOpen}>
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>Add link or note</DialogTitle>
+            <DialogDescription>
+              Paste a URL or type a quick note. URLs auto-detect their platform.
+            </DialogDescription>
+          </DialogHeader>
+          <textarea
+            autoFocus
+            placeholder="https://… or type a note"
+            value={pasteInput}
+            onChange={(e) => setPasteInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey && pasteInput.trim()) {
+                e.preventDefault();
+                submitPasteDialog();
+              }
+            }}
+            rows={4}
+            className="setup-dialog-tile-input resize-none"
+          />
+          <DialogFooter className="mt-2">
+            <DialogClose render={<Button type="button" variant="outline" />}>Cancel</DialogClose>
+            <Button type="button" onClick={submitPasteDialog} disabled={!pasteInput.trim()}>
+              Add
             </Button>
           </DialogFooter>
         </DialogContent>

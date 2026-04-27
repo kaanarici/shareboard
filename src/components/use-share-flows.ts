@@ -21,6 +21,7 @@ import {
 import { capturePreview } from "@/lib/share-preview";
 import { fetchStoredCanvas, unlockSharedBoard } from "@/lib/board-import";
 import { createTinyShareUrl } from "@/lib/tiny-share";
+import { useIsMobile } from "@/lib/use-is-mobile";
 import { notify } from "@/lib/toast";
 import {
   isDraftImageItem,
@@ -152,6 +153,7 @@ export function useShareFlows({
   const [history, setHistory] = useState<BoardHistoryEntry[]>([]);
   const [openingEntryId, setOpeningEntryId] = useState<string | null>(null);
   const shareResetTimer = useRef<number | null>(null);
+  const isMobile = useIsMobile();
 
   useMountEffect(() => {
     setHistory(getBoardHistory());
@@ -234,10 +236,17 @@ export function useShareFlows({
         }
       }
 
-      const previewNode = document.querySelector<HTMLElement>("[data-share-preview-root]");
-      if (previewNode) {
-        const preview = await capturePreview(previewNode);
-        if (preview) form.set("preview", preview, "preview.png");
+      // Skip the OG-card capture on mobile: the live DOM is a single-column
+      // stack, not the desktop 1200×630 shape, so a snapshot would look wrong.
+      // The server preserves the prior previewUrl on replace when no new
+      // preview is uploaded, so a desktop-captured preview survives a mobile
+      // edit.
+      if (!isMobile) {
+        const previewNode = document.querySelector<HTMLElement>("[data-share-preview-root]");
+        if (previewNode) {
+          const preview = await capturePreview(previewNode);
+          if (preview) form.set("preview", preview, "preview.png");
+        }
       }
 
       if (isReplaceStored) {
@@ -290,7 +299,7 @@ export function useShareFlows({
       setShareState("idle");
       notify.error(error instanceof Error ? error.message : "Failed to share");
     }
-  }, [pages, generation, boardOrigin, shareState, finishShare, markShareCopied]);
+  }, [pages, generation, boardOrigin, shareState, isMobile, finishShare, markShareCopied]);
 
   const shareLocked = useCallback(
     async (pin: string) => {

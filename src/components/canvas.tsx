@@ -19,6 +19,7 @@ import {
   buildTileSpecs,
 } from "@/lib/tile-specs";
 import { extractTweetId } from "@/lib/youtube";
+import { useIsMobile } from "@/lib/use-is-mobile";
 
 /** localStorage key for the tweet aspect-ratio cache. Exported for tests only. */
 export const TWEET_ASPECT_STORAGE_KEY = "shareboard_tweet_aspects";
@@ -63,6 +64,7 @@ export function Canvas({
   hideEmptyState?: boolean;
 }) {
   const acceptDrop = acceptExternalDrop !== false;
+  const isMobile = useIsMobile();
   const [isDragOver, setIsDragOver] = useState(false);
   // Readonly-only: tapping an image opens a fullscreen lightbox. In the editor
   // a tap means "select", so we never open the lightbox there.
@@ -195,11 +197,52 @@ export function Canvas({
 
   const isEmpty = items.length === 0;
 
+  const renderItemBody = (item: CanvasItem) => (
+    <>
+      {item.type === "url" && (
+        <UrlCard
+          item={item}
+          summary={getSummary(item.id)}
+          readonly={readonly}
+          onMeasureTweet={
+            isTwitterItem(item)
+              ? (ratio) => handleMeasureTweet(item, ratio)
+              : undefined
+          }
+        />
+      )}
+      {item.type === "image" && (
+        <ImageCard
+          item={item}
+          summary={getSummary(item.id)}
+          onMeasure={(ratio) => handleMeasureImage(item, ratio)}
+        />
+      )}
+      {item.type === "note" && (
+        <NoteCard
+          item={item}
+          summary={getSummary(item.id)}
+          readonly={readonly}
+          onUpdateText={onUpdateNoteText}
+        />
+      )}
+      {item.type === "board_summary" && generation && (
+        <div className="h-full w-full border border-border/40 bg-card rounded-lg p-5">
+          <SummarySection summary={generation.overall_summary} />
+        </div>
+      )}
+    </>
+  );
+
+  const containerClass = isMobile
+    ? "flex-1 w-full min-h-0 min-w-0 p-3 pb-24 overflow-y-auto overflow-x-hidden relative"
+    : "flex-1 w-full min-h-0 min-w-0 p-3 pb-20 md:p-5 md:pb-24 overflow-hidden relative";
+
   return (
     <div
       ref={containerRef}
       data-share-preview-root
-      className="flex-1 w-full min-h-0 min-w-0 p-3 pb-20 md:p-5 md:pb-24 overflow-hidden relative"
+      className={containerClass}
       onClick={handleBackgroundClick}
       onDragEnter={acceptDrop ? handleDragEnter : undefined}
       onDragLeave={acceptDrop ? handleDragLeave : undefined}
@@ -224,6 +267,15 @@ export function Canvas({
                       Then paste links, images, or notes here
                     </p>
                   </>
+                ) : isMobile ? (
+                  <>
+                    <p className="text-2xl md:text-3xl font-semibold tracking-tight text-inset">
+                      Tap + to add
+                    </p>
+                    <p className="text-base md:text-lg mt-2.5 text-inset max-w-[28ch] mx-auto leading-relaxed">
+                      Links, images, or notes
+                    </p>
+                  </>
                 ) : (
                   <>
                     <p className="text-2xl md:text-3xl font-semibold tracking-tight text-inset">
@@ -237,7 +289,55 @@ export function Canvas({
               </div>
             </div>
           )
-        : (
+        : isMobile ? (
+          <div className="board-mobile-stack">
+            {items.map((item) => {
+              const aspect =
+                item.type === "url" && item.platform === "youtube"
+                  ? 16 / 9
+                  : tileSpecs[item.id]?.aspect;
+              return (
+                <div
+                  key={item.id}
+                  className="board-mobile-stack-item group"
+                  data-item-type={item.type}
+                  style={aspect ? { aspectRatio: String(aspect) } : undefined}
+                  onClick={(e) => {
+                    if (readonly && item.type === "image") {
+                      const src = "url" in item ? item.url : item.previewUrl;
+                      if (src) setLightbox({ src, alt: item.caption });
+                      return;
+                    }
+                    const target = e.target as HTMLElement | null;
+                    if (target?.closest(".ProseMirror, input, textarea, [contenteditable=true]")) {
+                      return;
+                    }
+                    onSelect?.(item.id, e);
+                  }}
+                >
+                  {!readonly && onRemove && (
+                    <div className="board-mobile-stack-close">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onRemove(item.id);
+                        }}
+                        aria-label="Remove item"
+                        className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md"
+                      >
+                        <X className="h-3.5 w-3.5" strokeWidth={2.5} />
+                      </button>
+                    </div>
+                  )}
+                  <div className={`h-full w-full ${item.type === "url" ? "overflow-hidden" : "overflow-auto"}`}>
+                    {renderItemBody(item)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
           <AutoCanvas
             columns={LG_COLS}
             rowHeight={ROW_HEIGHT}
@@ -291,38 +391,7 @@ export function Canvas({
                     item.type === "url" ? "overflow-hidden" : "overflow-auto"
                   }`}
                 >
-                  {item.type === "url" && (
-                    <UrlCard
-                      item={item}
-                      summary={getSummary(item.id)}
-                      readonly={readonly}
-                      onMeasureTweet={
-                        isTwitterItem(item)
-                          ? (ratio) => handleMeasureTweet(item, ratio)
-                          : undefined
-                      }
-                    />
-                  )}
-                  {item.type === "image" && (
-                    <ImageCard
-                      item={item}
-                      summary={getSummary(item.id)}
-                      onMeasure={(ratio) => handleMeasureImage(item, ratio)}
-                    />
-                  )}
-                  {item.type === "note" && (
-                    <NoteCard
-                      item={item}
-                      summary={getSummary(item.id)}
-                      readonly={readonly}
-                      onUpdateText={onUpdateNoteText}
-                    />
-                  )}
-                  {item.type === "board_summary" && generation && (
-                    <div className="h-full w-full border border-border/40 bg-card rounded-lg p-5">
-                      <SummarySection summary={generation.overall_summary} />
-                    </div>
-                  )}
+                  {renderItemBody(item)}
                 </div>
               </div>
             ))}

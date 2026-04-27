@@ -19,6 +19,7 @@ import {
   Copy,
   Pencil,
   FilePlus,
+  ClipboardPaste,
 } from "lucide-react";
 import { copyText } from "@/lib/clipboard";
 import { notify } from "@/lib/toast";
@@ -42,6 +43,7 @@ export function Toolbar({
   onAddPage,
   onAddImage,
   onAddNote,
+  onPasteLink,
   onImport,
   onGenerate,
   onShare,
@@ -61,6 +63,7 @@ export function Toolbar({
   onAddPage: () => void;
   onAddImage: (file: File) => void;
   onAddNote: (text: string) => void;
+  onPasteLink: () => void;
   onImport: () => void;
   onGenerate: () => void;
   onShare: () => void;
@@ -99,6 +102,11 @@ export function Toolbar({
   };
 
   const fanItems: ActionFanItem[] = [
+    {
+      label: "Paste link or note",
+      icon: <ClipboardPaste className="h-4 w-4" />,
+      onClick: onPasteLink,
+    },
     {
       label: "Text note",
       icon: <Type className="h-4 w-4" />,
