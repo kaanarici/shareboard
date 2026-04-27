@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useMemo, useEffect, type MouseEvent } fr
 import { useMountEffect } from "@/lib/use-mount-effect";
 import { nanoid } from "nanoid";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { notify, notifyProgress } from "@/lib/toast";
+import { notify, notifyProgress, notifyWithUndo } from "@/lib/toast";
 import { Canvas } from "@/components/canvas";
 import { Toolbar } from "@/components/toolbar";
 import { SetupCards } from "@/components/setup-dialog";
@@ -23,6 +23,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { Check, Copy, Download, Loader2, Save, Share2 } from "lucide-react";
 import { getApiKey, isSetup, useSyncedSetting } from "@/lib/store";
 import {
+  clearLocalDraft,
   draftSignature,
   loadLocalDraft,
   saveLocalDraft,
@@ -49,7 +50,8 @@ import { BOARD_SUMMARY_ITEM_ID, isDraftImageItem } from "@/lib/types";
 import { IMAGE_POLICY, formatBytes, optimizeImageForShare } from "@/lib/image-policy";
 import { copyText } from "@/lib/clipboard";
 import { readErrorMessage } from "@/lib/fetch-helpers";
-import { useShareFlows } from "@/components/use-share-flows";
+import { useShareFlows, type BoardOrigin } from "@/components/use-share-flows";
+import { importFromUrl } from "@/lib/board-import";
 import { sanitizeGeneration, sanitizePublicCanvasManifest } from "@/lib/canvas-sanitize";
 import { decodeTinyShare, readStoredShareId, readTinyPayloadFromUrl } from "@/lib/tiny-share";
 
@@ -96,13 +98,21 @@ function createSvgFile(svgSource: string) {
 }
 
 function pagesFromHistoryCanvas(canvas: SharedCanvasData): BoardPage[] {
-  return canvas.pages.length
-    ? canvas.pages.map((page) => ({
-        id: page.id || nanoid(8),
-        items: page.items.filter((item) => item.type !== "board_summary"),
-        layouts: page.layouts ?? { lg: [], sm: [] },
-      }))
-    : [emptyPage()];
+  if (canvas.pages.length === 0) return [emptyPage()];
+  return canvas.pages.map((page, idx) => {
+    const baseItems = page.items.filter((item) => item.type !== "board_summary");
+    // Sharing strips the synthetic summary card but preserves `generation`,
+    // so re-add it on page 0 when importing a board with a summary.
+    const items: CanvasItem[] =
+      idx === 0 && canvas.generation
+        ? [...baseItems, { id: BOARD_SUMMARY_ITEM_ID, type: "board_summary" }]
+        : baseItems;
+    return {
+      id: page.id || nanoid(8),
+      items,
+      layouts: page.layouts ?? { lg: [], sm: [] },
+    };
+  });
 }
 
 function findSharedUrl(types: readonly string[], get: (type: string) => string) {
@@ -131,6 +141,7 @@ export function Home() {
 
   const [pages, setPages] = useState<BoardPage[]>(() => [emptyPage()]);
   const [generation, setGeneration] = useState<GenerateResponse | null>(null);
+  const [boardOrigin, setBoardOrigin] = useState<BoardOrigin>({ kind: "draft" });
   const [needsSetup, setNeedsSetup] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -142,6 +153,7 @@ export function Home() {
   const [isImporting, setIsImporting] = useState(false);
   const [saveState, setSaveState] = useState<"saved" | "saving" | "save">("saved");
   const lastSavedSigRef = useRef<string>("");
+  const lockedDisposeRef = useRef<(() => void) | null>(null);
   // Keep latest pages in a ref so the unmount blob-URL cleanup can walk them
   // without being a dep of the mount effect. Assignment during render is safe —
   // it doesn't trigger renders.
@@ -149,11 +161,16 @@ export function Home() {
   pagesRef.current = pages;
   const generationRef = useRef<GenerateResponse | null>(null);
   generationRef.current = generation;
+  const boardOriginRef = useRef<BoardOrigin>({ kind: "draft" });
+  boardOriginRef.current = boardOrigin;
 
   const restoreBoard = useCallback(
-    (canvas: SharedCanvasData) => {
+    (canvas: SharedCanvasData, origin: BoardOrigin = { kind: "draft" }) => {
+      lockedDisposeRef.current?.();
+      lockedDisposeRef.current = null;
       setPages(pagesFromHistoryCanvas(canvas));
       setGeneration(canvas.generation ?? null);
+      setBoardOrigin(origin);
       setSelectedIds([]);
       navigate({ search: {}, replace: false });
     },
@@ -165,45 +182,51 @@ export function Home() {
     setImportDialogOpen(true);
   }, []);
 
+  const newBoard = useCallback(() => {
+    const empty = pagesRef.current.every(
+      (p) => p.items.filter((i) => i.type !== "board_summary").length === 0,
+    );
+    if (empty) return;
+    const prev = {
+      pages: pagesRef.current,
+      generation: generationRef.current,
+      origin: boardOriginRef.current,
+    };
+    lockedDisposeRef.current?.();
+    lockedDisposeRef.current = null;
+    setPages([emptyPage()]);
+    setGeneration(null);
+    setBoardOrigin({ kind: "draft" });
+    setSelectedIds([]);
+    void clearLocalDraft();
+    notifyWithUndo("New board", () => {
+      setPages(prev.pages);
+      setGeneration(prev.generation);
+      setBoardOrigin(prev.origin);
+    });
+  }, []);
+
   const importFromInput = useCallback(async () => {
     const raw = importInput.trim();
     if (!raw || isImporting) return;
     setIsImporting(true);
     try {
-      const tinyPayload = readTinyPayloadFromUrl(raw);
-      if (tinyPayload) {
-        const canvas = await decodeTinyShare(tinyPayload).catch(() => null);
-        if (!canvas) {
-          notify.error("Couldn't read that shared board");
-          return;
-        }
-        restoreBoard(canvas);
-        setImportDialogOpen(false);
-        notify.success("Board imported");
+      const result = await importFromUrl(raw);
+      if (!result.ok) {
+        const messageByError: Record<typeof result.error, string> = {
+          "invalid-input": "Paste a Shareboard link to import",
+          "tiny-decode-failed": "Couldn't read that shared board",
+          "fetch-failed": "Couldn't fetch that board (it may be on another host)",
+          locked: "That board is locked. Open the link to view it.",
+          unreadable: "That board is locked or not importable",
+          "wrong-pin": "Wrong pin",
+        };
+        notify.error(messageByError[result.error]);
         return;
       }
-
-      const storedId = readStoredShareId(raw);
-      if (!storedId) {
-        notify.error("Paste a Shareboard link to import");
-        return;
-      }
-      const res = await fetch(`/api/share?key=${encodeURIComponent(`canvases/${storedId}.json`)}`);
-      if (!res.ok) {
-        notify.error("Couldn't fetch that board (it may be on another host)");
-        return;
-      }
-      const body = (await res.json().catch(() => null)) as unknown;
-      const canvas = sanitizePublicCanvasManifest(body);
-      if (!canvas) {
-        notify.error("That board is locked or not importable");
-        return;
-      }
-      restoreBoard(canvas);
+      restoreBoard(result.canvas, { kind: "draft" });
       setImportDialogOpen(false);
       notify.success("Board imported");
-    } catch {
-      notify.error("Couldn't import that board");
     } finally {
       setIsImporting(false);
     }
@@ -216,16 +239,14 @@ export function Home() {
     lockedShareOpen,
     setLockedShareOpen,
     lockedShareBusy,
-    hasLastSharedBoard,
-    isDeletingShare,
     history,
+    openingEntryId,
     share,
     shareLocked,
-    deleteLastShare,
     openHistoryEntry,
     removeHistoryEntry,
     markShareCopied,
-  } = useShareFlows({ pages, generation, onRestoreBoard: restoreBoard });
+  } = useShareFlows({ pages, generation, boardOrigin, onRestoreBoard: restoreBoard });
 
   const activePage = Math.max(0, Math.min(urlPage - 1, pages.length - 1));
 
@@ -270,10 +291,11 @@ export function Home() {
   const writeDraft = useCallback(async (manual: boolean) => {
     const p = pagesRef.current;
     const g = generationRef.current;
+    const o = boardOriginRef.current;
     const sig = draftSignature(p, g);
     setSaveState("saving");
     try {
-      await saveLocalDraft(p, g);
+      await saveLocalDraft(p, g, o);
       lastSavedSigRef.current = sig;
       setSaveState("saved");
       if (manual) notify.success("Saved to this browser");
@@ -317,6 +339,7 @@ export function Home() {
         if (draft) {
           setPages(draft.pages);
           setGeneration(draft.generation);
+          setBoardOrigin(draft.boardOrigin);
           lastSavedSigRef.current = draftSignature(draft.pages, draft.generation);
         } else {
           lastSavedSigRef.current = draftSignature(pagesRef.current, null);
@@ -925,12 +948,11 @@ export function Home() {
         hasItems={hasItems}
         hasApiKey={hasApiKey}
         isGenerating={isGenerating}
-        isDeletingShare={isDeletingShare}
-        hasLastSharedBoard={hasLastSharedBoard}
         locked={needsSetup}
         pageCount={pages.length}
         activePage={activePage}
         history={history}
+        openingEntryId={openingEntryId}
         onChangePage={setActivePage}
         onAddPage={addPage}
         onAddImage={(file) => void addImage(file)}
@@ -938,7 +960,7 @@ export function Home() {
         onImport={openImportDialog}
         onGenerate={generate}
         onShare={() => setLockedShareOpen(true)}
-        onDeleteLastShare={deleteLastShare}
+        onNewBoard={newBoard}
         onOpenHistoryEntry={openHistoryEntry}
         onRemoveHistoryEntry={removeHistoryEntry}
       />

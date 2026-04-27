@@ -74,3 +74,14 @@ export function notifyProgress(message: string) {
     },
   };
 }
+
+/**
+ * Reversible-action toast — primary message plus an "Undo" affordance. Bypasses
+ * the dedupe wrapper so the Undo button always renders.
+ */
+export function notifyWithUndo(message: string, onUndo: () => void) {
+  toast.success(message, {
+    duration: 5000,
+    action: { label: "Undo", onClick: onUndo },
+  });
+}

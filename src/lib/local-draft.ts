@@ -1,3 +1,4 @@
+import type { BoardOrigin } from "@/components/use-share-flows";
 import {
   isDraftImageItem,
   type BoardPage,
@@ -18,9 +19,10 @@ interface StoredPage {
 }
 
 interface StoredDraft {
-  v: 1;
+  v: 2;
   generation: GenerateResponse | null;
   pages: StoredPage[];
+  boardOrigin?: BoardOrigin;
 }
 
 function hasIdb() {
@@ -87,15 +89,17 @@ function rehydrate(items: unknown[]): CanvasItem[] {
 export async function saveLocalDraft(
   pages: BoardPage[],
   generation: GenerateResponse | null,
+  boardOrigin: BoardOrigin = { kind: "draft" },
 ): Promise<void> {
   if (!hasIdb()) throw new Error("Local storage unavailable");
   const snapshot: StoredDraft = {
-    v: 1,
+    v: 2,
     generation,
     pages: pages.map((page) => ({
       ...page,
       items: stripForStorage(page.items),
     })),
+    boardOrigin,
   };
   await withStore("readwrite", (store) => {
     store.put(snapshot, KEY);
@@ -105,11 +109,12 @@ export async function saveLocalDraft(
 export async function loadLocalDraft(): Promise<{
   pages: BoardPage[];
   generation: GenerateResponse | null;
+  boardOrigin: BoardOrigin;
 } | null> {
   if (!hasIdb()) return null;
   try {
     const raw = await withStore<StoredDraft | undefined>("readonly", (store) => store.get(KEY));
-    if (!raw || raw.v !== 1 || !Array.isArray(raw.pages) || raw.pages.length === 0) return null;
+    if (!raw || raw.v !== 2 || !Array.isArray(raw.pages) || raw.pages.length === 0) return null;
     return {
       pages: raw.pages.map((page) => ({
         id: page.id,
@@ -117,6 +122,7 @@ export async function loadLocalDraft(): Promise<{
         items: rehydrate(page.items ?? []),
       })),
       generation: raw.generation ?? null,
+      boardOrigin: raw.boardOrigin ?? { kind: "draft" },
     };
   } catch {
     return null;

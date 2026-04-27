@@ -19,6 +19,7 @@ import {
   type BoardHistoryEntry,
 } from "@/lib/store";
 import { capturePreview } from "@/lib/share-preview";
+import { fetchStoredCanvas, unlockSharedBoard } from "@/lib/board-import";
 import { createTinyShareUrl } from "@/lib/tiny-share";
 import { notify } from "@/lib/toast";
 import {
@@ -32,6 +33,17 @@ import {
   type ShareRequestPayload,
   type UrlItem,
 } from "@/lib/types";
+
+/**
+ * Editor hint describing where the current pages came from. Drives the share
+ * button: replace-in-place when origin points at an existing remote, otherwise
+ * mint a new id. Tiny replaces don't have a remote — they collapse the prior
+ * history entry so the user sees one row.
+ */
+export type BoardOrigin =
+  | { kind: "draft"; replaceHistoryId?: string }
+  | { kind: "stored"; id: string; deleteToken: string }
+  | { kind: "locked"; id: string; deleteToken: string; pin: string };
 
 type TitleableItem =
   | { type: "note"; text: string }
@@ -125,23 +137,23 @@ async function readShareCreateResponse(res: Response) {
 export function useShareFlows({
   pages,
   generation,
+  boardOrigin,
   onRestoreBoard,
 }: {
   pages: BoardPage[];
   generation: GenerateResponse | null;
-  onRestoreBoard: (canvas: SharedCanvasData) => void;
+  boardOrigin: BoardOrigin;
+  onRestoreBoard: (canvas: SharedCanvasData, origin: BoardOrigin) => void;
 }) {
   const [shareState, setShareState] = useState<"idle" | "sharing" | "copied">("idle");
   const [manualShareUrl, setManualShareUrl] = useState("");
   const [lockedShareOpen, setLockedShareOpen] = useState(false);
   const [lockedShareBusy, setLockedShareBusy] = useState(false);
-  const [hasLastSharedBoard, setHasLastSharedBoard] = useState(false);
-  const [isDeletingShare, setIsDeletingShare] = useState(false);
   const [history, setHistory] = useState<BoardHistoryEntry[]>([]);
+  const [openingEntryId, setOpeningEntryId] = useState<string | null>(null);
   const shareResetTimer = useRef<number | null>(null);
 
   useMountEffect(() => {
-    setHasLastSharedBoard(!!getLastSharedBoard());
     setHistory(getBoardHistory());
     return () => {
       if (shareResetTimer.current !== null) window.clearTimeout(shareResetTimer.current);
@@ -182,15 +194,22 @@ export function useShareFlows({
       const itemCount = payload.pages.reduce((n, page) => n + page.items.length, 0);
       const title = getBoardTitle(payload.pages);
 
+      const isReplaceStored = boardOrigin.kind === "stored";
       const hasImages = pages.some((page) => page.items.some((item) => item.type === "image"));
-      if (!hasImages) {
+
+      // Tiny path: only when there are no images AND this isn't a stored-replace
+      // (replace must hit the same /c/{id} URL, which requires the stored path).
+      if (!hasImages && !isReplaceStored) {
         const tinyCanvas = canvasFromTextOnlyPayload(payload, generation);
         const tinyUrl = await createTinyShareUrl(tinyCanvas, window.location.origin);
         if (tinyUrl) {
           clearLastSharedBoard();
-          setHasLastSharedBoard(false);
+          const entryId =
+            boardOrigin.kind === "draft" && boardOrigin.replaceHistoryId
+              ? boardOrigin.replaceHistoryId
+              : `tiny:${Date.now()}`;
           saveBoardHistory({
-            id: `tiny:${Date.now()}`,
+            id: entryId,
             kind: "tiny",
             title,
             subtitle: getHistorySubtitle("tiny", tinyCanvas.pages.length, itemCount),
@@ -221,16 +240,30 @@ export function useShareFlows({
         if (preview) form.set("preview", preview, "preview.png");
       }
 
+      if (isReplaceStored) {
+        form.set("replaceId", boardOrigin.id);
+        form.set("replaceToken", boardOrigin.deleteToken);
+      }
+
       const res = await fetch("/api/share", { method: "POST", body: form });
       if (!res.ok) {
         setShareState("idle");
-        notify.error(await readErrorMessage(res, "Failed to share"));
+        const message = await readErrorMessage(res, "Failed to share");
+        if (isReplaceStored && (res.status === 403 || res.status === 404)) {
+          notify.error("This share was edited or removed elsewhere. Refresh to continue.");
+        } else {
+          notify.error(message);
+        }
         return;
       }
       const { id, deleteToken } = await readShareCreateResponse(res);
       const shareUrl = `${window.location.origin}/c/${id}`;
       saveLastSharedBoard({ id, deleteToken, shareUrl });
-      setHasLastSharedBoard(true);
+      // Editing a tiny entry that now contains images promotes it to a stored
+      // share — drop the old tiny row so the user sees one entry, not two.
+      if (boardOrigin.kind === "draft" && boardOrigin.replaceHistoryId) {
+        removeBoardHistoryEntry(boardOrigin.replaceHistoryId);
+      }
       saveBoardHistory({
         id,
         kind: "stored",
@@ -240,22 +273,33 @@ export function useShareFlows({
         createdAt: new Date().toISOString(),
         itemCount,
         pageCount: payload.pages.length,
+        deleteToken,
       });
       setHistory(getBoardHistory());
-      await finishShare(shareUrl);
+      if (isReplaceStored) {
+        notify.success("Updated link copied");
+        if (await copyText(shareUrl)) markShareCopied();
+        else {
+          setShareState("idle");
+          setManualShareUrl(shareUrl);
+        }
+      } else {
+        await finishShare(shareUrl);
+      }
     } catch (error) {
       setShareState("idle");
       notify.error(error instanceof Error ? error.message : "Failed to share");
     }
-  }, [pages, generation, shareState, finishShare]);
+  }, [pages, generation, boardOrigin, shareState, finishShare, markShareCopied]);
 
   const shareLocked = useCallback(
     async (pin: string) => {
       if (lockedShareBusy || shareState === "sharing") return;
       setLockedShareBusy(true);
       setShareState("sharing");
+      const isReplaceLocked = boardOrigin.kind === "locked";
       try {
-        const id = createLockedShareId();
+        const id = isReplaceLocked ? boardOrigin.id : createLockedShareId();
         const createdAt = new Date().toISOString();
         const imageUploads: LockedImageUpload[] = [];
         const securePages: SharedCanvasData["pages"] = [];
@@ -310,15 +354,21 @@ export function useShareFlows({
             new File([file.data], `${file.id}.bin`, { type: "application/octet-stream" }),
           );
         }
+        if (isReplaceLocked) {
+          form.set("replaceId", boardOrigin.id);
+          form.set("replaceToken", boardOrigin.deleteToken);
+        }
 
         const res = await fetch("/api/share", { method: "POST", body: form });
         if (!res.ok) {
+          if (isReplaceLocked && (res.status === 403 || res.status === 404)) {
+            throw new Error("This share was edited or removed elsewhere. Refresh to continue.");
+          }
           throw new Error(await readErrorMessage(res, "Failed to create locked share"));
         }
         const { id: shareId, deleteToken } = await readShareCreateResponse(res);
         const shareUrl = `${window.location.origin}/c/${shareId}`;
         saveLastSharedBoard({ id: shareId, deleteToken, shareUrl });
-        setHasLastSharedBoard(true);
         saveBoardHistory({
           id: shareId,
           kind: "locked",
@@ -328,10 +378,20 @@ export function useShareFlows({
           createdAt,
           itemCount,
           pageCount: securePages.length,
+          deleteToken,
         });
         setHistory(getBoardHistory());
         setLockedShareOpen(false);
-        await finishShare(shareUrl);
+        if (isReplaceLocked) {
+          notify.success("Updated link copied");
+          if (await copyText(shareUrl)) markShareCopied();
+          else {
+            setShareState("idle");
+            setManualShareUrl(shareUrl);
+          }
+        } else {
+          await finishShare(shareUrl);
+        }
       } catch (error) {
         setShareState("idle");
         notify.error(error instanceof Error ? error.message : "Failed to create locked share");
@@ -339,56 +399,100 @@ export function useShareFlows({
         setLockedShareBusy(false);
       }
     },
-    [pages, generation, lockedShareBusy, shareState, finishShare],
+    [pages, generation, boardOrigin, lockedShareBusy, shareState, finishShare, markShareCopied],
   );
 
-  const deleteLastShare = useCallback(async () => {
-    const lastShare = getLastSharedBoard();
-    if (!lastShare) {
-      notify.error("No saved share to delete");
-      setHasLastSharedBoard(false);
-      return;
-    }
-
-    setIsDeletingShare(true);
-    try {
-      const res = await fetch(`/api/share?id=${encodeURIComponent(lastShare.id)}`, {
-        method: "DELETE",
-        headers: { "x-delete-token": lastShare.deleteToken },
-      });
-      if (!res.ok) {
-        notify.error(await readErrorMessage(res, "Failed to delete share"));
-        return;
-      }
-
-      clearLastSharedBoard();
-      setHasLastSharedBoard(false);
-      notify.success("Last shared board deleted");
-    } catch {
-      notify.error("Failed to delete share");
-    } finally {
-      setIsDeletingShare(false);
-    }
-  }, []);
-
   const openHistoryEntry = useCallback(
-    (entry: BoardHistoryEntry) => {
-      if (entry.canvas && Array.isArray(entry.canvas.pages)) {
-        onRestoreBoard(entry.canvas);
+    async (entry: BoardHistoryEntry) => {
+      if (entry.kind === "tiny") {
+        if (!entry.canvas || !Array.isArray(entry.canvas.pages)) {
+          notify.error("This local history entry cannot be restored");
+          return;
+        }
+        onRestoreBoard(entry.canvas, { kind: "draft", replaceHistoryId: entry.id });
         notify.success("Board restored");
         return;
       }
-      if (entry.kind === "tiny") {
-        notify.error("This local history entry cannot be restored");
+      if (entry.kind === "stored") {
+        if (!entry.deleteToken) {
+          notify.error("Re-share this board once to enable in-place editing.");
+          return;
+        }
+        setOpeningEntryId(entry.id);
+        try {
+          const result = await fetchStoredCanvas(entry.id);
+          if (!result.ok) {
+            notify.error(
+              result.error === "locked"
+                ? "This share is locked. Open the link to view it."
+                : "Couldn't load that board",
+            );
+            return;
+          }
+          onRestoreBoard(result.canvas, {
+            kind: "stored",
+            id: entry.id,
+            deleteToken: entry.deleteToken,
+          });
+          notify.success("Board ready to edit");
+        } finally {
+          setOpeningEntryId(null);
+        }
         return;
       }
-      window.open(entry.shareUrl, "_blank", "noopener,noreferrer");
+      // Locked entry
+      if (!entry.deleteToken) {
+        notify.error("Re-share this board once to enable in-place editing.");
+        return;
+      }
+      setOpeningEntryId(entry.id);
+      try {
+        const pin = window.prompt("Enter the 6-digit pin for this locked share");
+        if (!pin || !/^\d{6}$/.test(pin.trim())) {
+          if (pin !== null) notify.error("Pin must be 6 digits");
+          return;
+        }
+        const result = await unlockSharedBoard(entry.id, pin.trim());
+        if (!result.ok) {
+          notify.error(
+            result.error === "wrong-pin"
+              ? "Wrong pin"
+              : "Couldn't unlock that board",
+          );
+          return;
+        }
+        onRestoreBoard(result.canvas, {
+          kind: "locked",
+          id: entry.id,
+          deleteToken: entry.deleteToken,
+          pin: pin.trim(),
+        });
+        notify.success("Board ready to edit");
+      } finally {
+        setOpeningEntryId(null);
+      }
     },
     [onRestoreBoard],
   );
 
-  const removeHistoryEntry = useCallback((id: string) => {
-    removeBoardHistoryEntry(id);
+  const removeHistoryEntry = useCallback(async (entry: BoardHistoryEntry) => {
+    if (entry.deleteToken && (entry.kind === "stored" || entry.kind === "locked")) {
+      try {
+        const res = await fetch(`/api/share?id=${encodeURIComponent(entry.id)}`, {
+          method: "DELETE",
+          headers: { "x-delete-token": entry.deleteToken },
+        });
+        if (!res.ok && res.status !== 404) {
+          notify.error(await readErrorMessage(res, "Failed to delete share"));
+          // Still drop from history — keeping stale entries is worse UX.
+        }
+      } catch {
+        // Network failure: still drop the local entry.
+      }
+      const last = getLastSharedBoard();
+      if (last?.id === entry.id) clearLastSharedBoard();
+    }
+    removeBoardHistoryEntry(entry.id);
     setHistory(getBoardHistory());
   }, []);
 
@@ -399,12 +503,10 @@ export function useShareFlows({
     lockedShareOpen,
     setLockedShareOpen,
     lockedShareBusy,
-    hasLastSharedBoard,
-    isDeletingShare,
     history,
+    openingEntryId,
     share,
     shareLocked,
-    deleteLastShare,
     openHistoryEntry,
     removeHistoryEntry,
     markShareCopied,

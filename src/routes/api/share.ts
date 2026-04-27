@@ -286,13 +286,17 @@ function parseEncryptedPayload(raw: string | undefined): EncryptedSharePayload {
 /** Counters shared across pages to enforce board-wide image caps. */
 type ImageCounters = { count: number; bytes: number };
 
+type StoredImageItem = Extract<SharedCanvasItem, { type: "image" }>;
+
 async function buildSharedItems(
   canvasId: string,
   pageId: string,
   rawItems: ShareRequestItem[],
   files: Map<string, File>,
   uploadedKeys: string[],
-  counters: ImageCounters
+  counters: ImageCounters,
+  /** When provided (replace flow), image items with no uploaded bytes reuse the existing object. */
+  reuseImagesById?: Map<string, StoredImageItem>,
 ): Promise<SharedCanvasItem[]> {
   if (rawItems.length > SHARE_LIMITS.maxItemsPerPage) {
     badRequest(`A page can hold at most ${SHARE_LIMITS.maxItemsPerPage} items`);
@@ -313,6 +317,25 @@ async function buildSharedItems(
 
       const sanitized: ShareRequestImageItem = item;
       const file = files.get(sanitized.id);
+
+      if (!file && reuseImagesById?.has(sanitized.id)) {
+        const reused = reuseImagesById.get(sanitized.id)!;
+        counters.bytes += reused.size ?? 0;
+        if (counters.bytes > SHARE_LIMITS.maxTotalImageBytes) {
+          badRequest(`Images exceed ${Math.floor(SHARE_LIMITS.maxTotalImageBytes / 1024 / 1024)} MB total`);
+        }
+        items.push({
+          id: sanitized.id,
+          type: "image",
+          url: reused.url,
+          ...(reused.objectKey ? { objectKey: reused.objectKey } : {}),
+          mimeType: sanitized.mimeType ?? reused.mimeType,
+          size: reused.size,
+          caption: sanitized.caption ?? reused.caption,
+        });
+        continue;
+      }
+
       if (!file) badRequest(`Missing image upload for item ${sanitized.id}`);
       if (!file.type.startsWith("image/")) badRequest("Only image uploads are allowed");
       if (file.size > SHARE_LIMITS.maxImageBytes) {
@@ -346,6 +369,17 @@ async function buildSharedItems(
   return items;
 }
 
+/** Walk a Canvas's images, indexed by item id — used by the replace flow to skip re-uploading unchanged images. */
+function indexCanvasImages(canvas: Canvas): Map<string, StoredImageItem> {
+  const map = new Map<string, StoredImageItem>();
+  for (const page of canvas.pages) {
+    for (const item of page.items) {
+      if (item.type === "image") map.set(item.id, item);
+    }
+  }
+  return map;
+}
+
 async function uploadPreview(
   canvasId: string,
   raw: FormDataEntryValue | null,
@@ -366,13 +400,14 @@ async function buildSharedPages(
   canvasId: string,
   rawPages: ShareRequestPayload["pages"],
   files: Map<string, File>,
-  uploadedKeys: string[]
+  uploadedKeys: string[],
+  reuseImagesById?: Map<string, StoredImageItem>,
 ): Promise<SharedBoardPage[]> {
   const counters: ImageCounters = { count: 0, bytes: 0 };
   const pages: SharedBoardPage[] = [];
 
   for (const page of rawPages) {
-    const items = await buildSharedItems(canvasId, page.id, page.items, files, uploadedKeys, counters);
+    const items = await buildSharedItems(canvasId, page.id, page.items, files, uploadedKeys, counters, reuseImagesById);
     pages.push({ id: page.id, items, ...(page.layouts ? { layouts: page.layouts } : {}) });
   }
 
@@ -437,6 +472,10 @@ export const Route = createFileRoute("/api/share")({
         const uploadedKeys: string[] = [];
         try {
           const form = await request.formData();
+          const replaceId = keepToken(form.get("replaceId")?.toString(), 80);
+          const replaceToken = trimText(form.get("replaceToken")?.toString(), 200);
+          const isReplace = !!(replaceId && replaceToken);
+
           const encryptedRaw = form.get("encryptedPayload")?.toString();
           if (encryptedRaw) {
             const payload = parseEncryptedPayload(encryptedRaw);
@@ -444,7 +483,20 @@ export const Route = createFileRoute("/api/share")({
             if (pin.length !== 6) badRequest("Invalid PIN");
             const lockedKey = await lockedCanvasKey(payload.id);
             const existing = await getObjectText(lockedKey);
-            if (existing) throw new ShareError("Share id already exists", 409);
+
+            let priorImageKeys: string[] = [];
+            if (isReplace) {
+              if (replaceId !== payload.id) badRequest("Replace id mismatch");
+              if (!existing) throw new ShareError("Share not found", 404);
+              const priorParsed = parseStoredJson(existing);
+              if (!isEncryptedCanvas(priorParsed)) throw new ShareError("Share not found", 404);
+              if (!priorParsed.deleteTokenHash || priorParsed.deleteTokenHash !== hashToken(replaceToken)) {
+                throw new ShareError("Invalid replace token", 403);
+              }
+              priorImageKeys = priorParsed.images.map((img) => img.key);
+            } else if (existing) {
+              throw new ShareError("Share id already exists", 409);
+            }
 
             const files = new Map<string, File>();
             for (const [key, value] of form.entries()) {
@@ -481,6 +533,14 @@ export const Route = createFileRoute("/api/share")({
               deleteTokenHash: hashToken(deleteToken),
             };
             await putObject(lockedKey, JSON.stringify(canvas), "no-store");
+            if (isReplace) {
+              const newKeys = new Set(images.map((img) => img.key));
+              await Promise.all(
+                priorImageKeys
+                  .filter((key) => !newKeys.has(key))
+                  .map((key) => deleteObject(key).catch(() => undefined))
+              );
+            }
             return Response.json({ id: payload.id, deleteToken } satisfies ShareCreateResponse);
           }
 
@@ -492,9 +552,31 @@ export const Route = createFileRoute("/api/share")({
             files.set(key.slice("image:".length), value);
           }
 
-          const id = createShareId();
+          let id: string;
+          let reuseImages: Map<string, StoredImageItem> | undefined;
+          let priorImageKeys: string[] = [];
+
+          if (isReplace) {
+            const canvasKey = `canvases/${replaceId}.json`;
+            const priorRaw = await getObjectText(canvasKey);
+            if (!priorRaw) throw new ShareError("Share not found", 404);
+            const priorParsed = parseStoredJson(priorRaw);
+            const priorCanvas = sanitizePublicCanvasManifest(priorParsed);
+            if (!priorCanvas) throw new ShareError("Share not found", 404);
+            if (!priorCanvas.deleteTokenHash || priorCanvas.deleteTokenHash !== hashToken(replaceToken)) {
+              throw new ShareError("Invalid replace token", 403);
+            }
+            id = replaceId;
+            reuseImages = indexCanvasImages(priorCanvas);
+            priorImageKeys = Array.from(reuseImages.values())
+              .map((img) => img.objectKey)
+              .filter((key): key is string => !!key);
+          } else {
+            id = createShareId();
+          }
+
           const deleteToken = randomBytes(24).toString("base64url");
-          const pages = await buildSharedPages(id, payload.pages, files, uploadedKeys);
+          const pages = await buildSharedPages(id, payload.pages, files, uploadedKeys, reuseImages);
 
           const authorProfile = sanitizeStrictAuthorProfile(payload.authorProfile);
           const previewUrl = await uploadPreview(id, form.get("preview"), uploadedKeys);
@@ -511,6 +593,21 @@ export const Route = createFileRoute("/api/share")({
           };
 
           await putObject(`canvases/${id}.json`, JSON.stringify(canvas), MANIFEST_CACHE_CONTROL);
+
+          if (isReplace) {
+            const newKeys = new Set<string>();
+            for (const page of pages) {
+              for (const item of page.items) {
+                if (item.type === "image" && item.objectKey) newKeys.add(item.objectKey);
+              }
+            }
+            await Promise.all(
+              priorImageKeys
+                .filter((key) => !newKeys.has(key))
+                .map((key) => deleteObject(key).catch(() => undefined))
+            );
+          }
+
           return Response.json({ id, deleteToken } satisfies ShareCreateResponse);
         } catch (error) {
           await Promise.all(uploadedKeys.map((key) => deleteObject(key).catch(() => undefined)));

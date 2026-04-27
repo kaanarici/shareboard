@@ -16,7 +16,12 @@ import {
   Plus,
   Layers,
   Download,
+  Copy,
+  Pencil,
+  FilePlus,
 } from "lucide-react";
+import { copyText } from "@/lib/clipboard";
+import { notify } from "@/lib/toast";
 import { X as XIcon } from "@/components/ui/svgs/x";
 import { InstagramIcon } from "@/components/ui/svgs/instagramIcon";
 import { Linkedin } from "@/components/ui/svgs/linkedin";
@@ -28,12 +33,11 @@ export function Toolbar({
   hasItems,
   hasApiKey,
   isGenerating,
-  isDeletingShare,
-  hasLastSharedBoard,
   locked,
   pageCount,
   activePage,
   history,
+  openingEntryId,
   onChangePage,
   onAddPage,
   onAddImage,
@@ -41,19 +45,18 @@ export function Toolbar({
   onImport,
   onGenerate,
   onShare,
-  onDeleteLastShare,
+  onNewBoard,
   onOpenHistoryEntry,
   onRemoveHistoryEntry,
 }: {
   hasItems: boolean;
   hasApiKey: boolean;
   isGenerating: boolean;
-  isDeletingShare: boolean;
-  hasLastSharedBoard: boolean;
   locked?: boolean;
   pageCount: number;
   activePage: number;
   history: BoardHistoryEntry[];
+  openingEntryId: string | null;
   onChangePage: (next: number) => void;
   onAddPage: () => void;
   onAddImage: (file: File) => void;
@@ -61,9 +64,9 @@ export function Toolbar({
   onImport: () => void;
   onGenerate: () => void;
   onShare: () => void;
-  onDeleteLastShare: () => void;
+  onNewBoard: () => void;
   onOpenHistoryEntry: (entry: BoardHistoryEntry) => void;
-  onRemoveHistoryEntry: (id: string) => void;
+  onRemoveHistoryEntry: (entry: BoardHistoryEntry) => void;
 }) {
   // Single source of truth for which toolbar menu (if any) is open. base-ui's
   // Popover dropped second-click toggles via stickIfOpen + PATIENT_CLICK_THRESHOLD;
@@ -266,22 +269,6 @@ export function Toolbar({
             >
               Save
             </Button>
-
-              {hasLastSharedBoard && (
-                <button
-                  type="button"
-                  onClick={onDeleteLastShare}
-                  disabled={isDeletingShare}
-                  className="board-popover-link"
-                >
-                  {isDeletingShare ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <Trash2 className="h-3.5 w-3.5" />
-                  )}
-                  <span>Delete last shared board</span>
-                </button>
-              )}
           </ToolbarMenu>
 
           <ToolbarMenu
@@ -289,41 +276,106 @@ export function Toolbar({
             onToggle={() => toggleMenu("history")}
             onClose={closeMenu}
             ariaLabel="Recent boards"
-            popupClassName={`board-popover board-popover--history${
-              history.length === 0 ? " board-popover--history-empty" : ""
-            }`}
+            popupClassName="board-popover board-popover--history"
             triggerIcon={<Clock3 className="h-4 w-4 text-foreground/60" />}
           >
-              <div className="board-popover-section board-history">
-                {history.length === 0 ? (
-                  <div className="board-history-empty">Recent shares appear here.</div>
-                ) : (
-                  history.map((entry) => (
+            <div className="board-popover-section board-history">
+              <button
+                type="button"
+                className="board-history-row board-history-new"
+                disabled={!hasItems}
+                onClick={() => {
+                  onNewBoard();
+                  closeMenu();
+                }}
+              >
+                <FilePlus className="h-4 w-4 text-foreground/60" aria-hidden />
+                <span className="board-history-title">New board</span>
+              </button>
+              {history.length === 0 ? (
+                <div className="board-history-empty">Recent shares appear here.</div>
+              ) : (
+                history.map((entry) => {
+                  const canEdit = entry.kind === "tiny" || !!entry.deleteToken;
+                  const isOpening = openingEntryId === entry.id;
+                  const removeTooltip = entry.deleteToken
+                    ? "Delete share"
+                    : "Remove from history (live link unaffected)";
+                  return (
                     <div className="board-history-row" key={entry.id}>
                       <button
                         type="button"
                         className="board-history-main"
                         onClick={() => {
-                          onOpenHistoryEntry(entry);
-                          closeMenu();
+                          if (canEdit) {
+                            void onOpenHistoryEntry(entry);
+                            closeMenu();
+                          } else {
+                            window.open(entry.shareUrl, "_blank", "noopener,noreferrer");
+                          }
                         }}
                       >
                         <span className="board-history-title">{entry.title}</span>
                         <span className="board-history-subtitle">{entry.subtitle}</span>
                       </button>
-                      <button
-                        type="button"
-                        className="board-history-remove"
-                        aria-label={`Remove ${entry.title} from history`}
-                        title="Remove"
-                        onClick={() => onRemoveHistoryEntry(entry.id)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                      <div className="board-history-actions">
+                        <button
+                          type="button"
+                          className="board-history-action"
+                          aria-label={`Copy link to ${entry.title}`}
+                          title="Copy link"
+                          onClick={async () => {
+                            const ok = await copyText(entry.shareUrl);
+                            if (ok) notify.success("Link copied to clipboard");
+                            else notify.error("Couldn't copy link");
+                          }}
+                        >
+                          <Copy className="h-3.5 w-3.5" />
+                        </button>
+                        {canEdit ? (
+                          <button
+                            type="button"
+                            className="board-history-action"
+                            aria-label={`Edit ${entry.title}`}
+                            title="Edit"
+                            disabled={isOpening}
+                            onClick={() => {
+                              void onOpenHistoryEntry(entry);
+                              closeMenu();
+                            }}
+                          >
+                            {isOpening ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Pencil className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="board-history-action"
+                            disabled
+                            title="Re-share to enable in-place editing"
+                            aria-label="Editing unavailable for this entry"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="board-history-action"
+                          aria-label={`${removeTooltip} for ${entry.title}`}
+                          title={removeTooltip}
+                          onClick={() => void onRemoveHistoryEntry(entry)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </div>
-                  ))
-                )}
-              </div>
+                  );
+                })
+              )}
+            </div>
           </ToolbarMenu>
         </div>
 

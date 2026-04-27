@@ -27,6 +27,8 @@ export type BoardHistoryEntry = {
   itemCount: number;
   pageCount: number;
   canvas?: Canvas;
+  /** Per-entry remote-delete + replace credential. Absent on entries created before in-place editing landed. */
+  deleteToken?: string;
 };
 
 const MAX_HISTORY = 12;

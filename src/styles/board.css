@@ -433,15 +433,6 @@
   width: min(100vw - 2rem, 19rem);
 }
 
-.board-popover--history-empty {
-  width: auto;
-}
-
-.board-popover--history-empty .board-history-empty {
-  padding: 0.5rem 0.75rem;
-  white-space: nowrap;
-}
-
 .board-popover-section {
   display: flex;
   flex-direction: column;
@@ -568,24 +559,61 @@
   color: rgba(10, 10, 10, 0.52);
 }
 
-.board-history-remove {
+.board-history-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.0625rem;
+  padding-right: 0.25rem;
+}
+
+.board-history-new {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem 0.625rem;
+  border: 0;
+  background: transparent;
+  border-radius: 0.625rem;
+  color: var(--foreground);
+  cursor: pointer;
+  text-align: left;
+  font-size: 0.8125rem;
+  font-weight: 550;
+  transition: background-color 0.12s ease;
+}
+
+.board-history-new:hover:not(:disabled) {
+  background-color: rgba(0, 0, 0, 0.04);
+}
+
+.board-history-new:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.board-history-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 2rem;
   height: 2rem;
-  margin-right: 0.25rem;
   border: 0;
   border-radius: 999px;
   background: transparent;
-  color: rgba(10, 10, 10, 0.38);
+  color: rgba(10, 10, 10, 0.45);
   cursor: pointer;
   transition: background-color 0.12s ease, color 0.12s ease;
 }
 
-.board-history-remove:hover {
+.board-history-action:hover:not(:disabled) {
   background-color: rgba(0, 0, 0, 0.06);
-  color: var(--destructive);
+  color: var(--foreground);
+}
+
+.board-history-action:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 /* ─── Locked board PIN entry ────────────────────────────────────────── */
