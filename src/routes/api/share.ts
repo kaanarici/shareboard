@@ -39,6 +39,7 @@ const SHARE_LIMITS = {
   maxImages: 32,
   maxImageBytes: 4 * 1024 * 1024,
   maxTotalImageBytes: 75 * 1024 * 1024,
+  maxPreviewBytes: 768 * 1024,
 } as const;
 
 type EncryptedSharePayload = Omit<EncryptedCanvasEnvelope, "deleteTokenHash">;
@@ -345,6 +346,22 @@ async function buildSharedItems(
   return items;
 }
 
+async function uploadPreview(
+  canvasId: string,
+  raw: FormDataEntryValue | null,
+  uploadedKeys: string[]
+): Promise<string | undefined> {
+  if (!(raw instanceof File)) return undefined;
+  if (raw.type !== "image/png") return undefined;
+  if (raw.size === 0 || raw.size > SHARE_LIMITS.maxPreviewBytes) return undefined;
+  const key = `previews/${canvasId}.png`;
+  if (!isSafeObjectKey(key)) return undefined;
+  const bytes = Buffer.from(await raw.arrayBuffer());
+  const url = await putBuffer(key, bytes, "image/png", "public, max-age=31536000, immutable");
+  uploadedKeys.push(key);
+  return url;
+}
+
 async function buildSharedPages(
   canvasId: string,
   rawPages: ShareRequestPayload["pages"],
@@ -480,6 +497,7 @@ export const Route = createFileRoute("/api/share")({
           const pages = await buildSharedPages(id, payload.pages, files, uploadedKeys);
 
           const authorProfile = sanitizeStrictAuthorProfile(payload.authorProfile);
+          const previewUrl = await uploadPreview(id, form.get("preview"), uploadedKeys);
 
           const canvas: Canvas = {
             id,
@@ -489,6 +507,7 @@ export const Route = createFileRoute("/api/share")({
             generation: sanitizeGeneration(payload.generation),
             createdAt: new Date().toISOString(),
             deleteTokenHash: hashToken(deleteToken),
+            ...(previewUrl ? { previewUrl } : {}),
           };
 
           await putObject(`canvases/${id}.json`, JSON.stringify(canvas), MANIFEST_CACHE_CONTROL);
@@ -534,7 +553,12 @@ export const Route = createFileRoute("/api/share")({
           );
         }
 
-        if (!key.startsWith("images/") && !key.startsWith("locked-images/") && !key.startsWith("canvases/")) {
+        if (
+          !key.startsWith("images/") &&
+          !key.startsWith("locked-images/") &&
+          !key.startsWith("canvases/") &&
+          !key.startsWith("previews/")
+        ) {
           return Response.json({ error: "Invalid object key" }, { status: 400 });
         }
         if (!isSafeObjectKey(key)) {
@@ -598,6 +622,9 @@ export const Route = createFileRoute("/api/share")({
 
           await Promise.all(keys.map((key) => deleteObject(key)));
           await deleteObject(canvasKey);
+          if (!("images" in canvas)) {
+            await deleteObject(`previews/${id}.png`).catch(() => undefined);
+          }
 
           return Response.json({ ok: true });
         } catch (error) {

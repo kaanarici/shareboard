@@ -69,6 +69,15 @@ function keepStoredImageUrl(value: unknown, max: number): string | null {
   return key && isShareImageObjectKey(key) ? trimmed : null;
 }
 
+function keepStoredPreviewUrl(value: unknown, max: number): string | null {
+  const httpUrl = keepHttpUrl(value, max);
+  if (httpUrl) return httpUrl;
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim().slice(0, max);
+  const key = getLocalShareObjectKey(trimmed);
+  return key && key.startsWith("previews/") ? trimmed : null;
+}
+
 export function sanitizeOgData(value: unknown): OGData | undefined {
   if (!value || typeof value !== "object") return undefined;
   const og = value as Record<string, unknown>;
@@ -383,6 +392,10 @@ export function sanitizePublicCanvasManifest(
     ...(generation ? { generation } : {}),
     createdAt: trimText(canvas.createdAt, 40) || new Date().toISOString(),
     ...(typeof canvas.deleteTokenHash === "string" ? { deleteTokenHash: canvas.deleteTokenHash } : {}),
+    ...((() => {
+      const url = keepStoredPreviewUrl(canvas.previewUrl, SANITIZE_LIMITS.maxOgImageChars);
+      return url ? { previewUrl: url } : {};
+    })()),
   };
 }
 

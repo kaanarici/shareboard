@@ -4,6 +4,7 @@ import { useMountEffect } from "@/lib/use-mount-effect";
 
 const RADIUS = 96;
 const ITEM_SIZE = 44;
+const ARC_DEGREES = 150;
 
 export type ActionFanItem = {
   label: string;
@@ -54,8 +55,9 @@ export function ActionFan({
   return (
     <div ref={containerRef} className="action-fan">
       {items.map((item, i) => {
-        // Narrow top arc centered on straight-up (0). 120° spread.
-        const arc = (120 * Math.PI) / 180;
+        // Top arc centered on straight-up (0). Wider spread keeps adjacent
+        // buttons from touching when several items are in the fan.
+        const arc = (ARC_DEGREES * Math.PI) / 180;
         const angle = n === 1 ? 0 : -arc / 2 + (arc * i) / (n - 1);
         const x = RADIUS * Math.sin(angle);
         const y = -RADIUS * Math.cos(angle);

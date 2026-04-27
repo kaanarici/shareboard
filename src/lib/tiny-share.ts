@@ -55,3 +55,27 @@ export async function decodeTinyShare(value: string) {
     ? sanitizeTinyCanvas(envelope.canvas, { maxPages: TINY_MAX_PAGES, maxItemsPerPage: TINY_MAX_ITEMS_PER_PAGE })
     : null;
 }
+
+/** Pull the `b=...` payload from a shareboard tiny-share URL or hash fragment. */
+export function readTinyPayloadFromUrl(input: string): string | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  const hashIdx = trimmed.indexOf("#");
+  const hash = hashIdx >= 0 ? trimmed.slice(hashIdx + 1) : trimmed;
+  if (!hash) return null;
+  const params = new URLSearchParams(hash);
+  return params.get(TINY_SHARE_PARAM);
+}
+
+/** Extract a stored-board id from a `/c/<id>` share URL. */
+export function readStoredShareId(input: string): string | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  try {
+    const url = new URL(trimmed, typeof window !== "undefined" ? window.location.origin : "http://localhost");
+    const match = url.pathname.match(/\/c\/([A-Za-z0-9_-]+)\/?$/);
+    return match?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}

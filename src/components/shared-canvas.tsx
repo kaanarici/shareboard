@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { useMountEffect } from "@/lib/use-mount-effect";
 import { clampPageIndex, readPageIndexFromUrl } from "@/lib/pagination";
 import type { Canvas as CanvasType, CanvasItem, GridLayouts } from "@/lib/types";
@@ -11,7 +12,7 @@ import { notify } from "@/lib/toast";
 import { X as XIcon } from "@/components/ui/svgs/x";
 import { InstagramIcon } from "@/components/ui/svgs/instagramIcon";
 import { Linkedin } from "@/components/ui/svgs/linkedin";
-import { Share2 } from "lucide-react";
+import { ArrowRight, Share2 } from "lucide-react";
 
 type Page = { id: string; items: CanvasItem[]; layouts: GridLayouts };
 
@@ -191,15 +192,24 @@ export function SharedCanvas({
         )}
       />
 
-      {pages.length > 1 && (
-        <div className="board-toolbar" aria-label="Board navigation">
-          <PageNav
-            pageCount={pages.length}
-            activeIndex={activePage}
-            onChange={setActivePage}
-          />
-        </div>
-      )}
+      <div className="board-toolbar" aria-label="Board navigation">
+        <span className="board-toolbar-left" />
+        <span className="board-toolbar-center">
+          {pages.length > 1 && (
+            <PageNav
+              pageCount={pages.length}
+              activeIndex={activePage}
+              onChange={setActivePage}
+            />
+          )}
+        </span>
+        <span className="board-toolbar-right">
+          <Link to="/" className="board-cta-link">
+            <span>Make your own</span>
+            <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        </span>
+      </div>
     </div>
   );
 }

@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useMemo, useEffect, type MouseEvent } fr
 import { useMountEffect } from "@/lib/use-mount-effect";
 import { nanoid } from "nanoid";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { notify } from "@/lib/toast";
+import { notify, notifyProgress } from "@/lib/toast";
 import { Canvas } from "@/components/canvas";
 import { Toolbar } from "@/components/toolbar";
 import { SetupCards } from "@/components/setup-dialog";
@@ -19,8 +19,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Check, Copy, Loader2, Share2 } from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { Check, Copy, Download, Loader2, Save, Share2 } from "lucide-react";
 import { getApiKey, isSetup, useSyncedSetting } from "@/lib/store";
+import {
+  draftSignature,
+  loadLocalDraft,
+  saveLocalDraft,
+} from "@/lib/local-draft";
 import { detectPlatform, isValidUrl } from "@/lib/platforms";
 import { mergeLayout } from "@/components/ui/auto-canvas";
 import {
@@ -44,7 +50,8 @@ import { IMAGE_POLICY, formatBytes, optimizeImageForShare } from "@/lib/image-po
 import { copyText } from "@/lib/clipboard";
 import { readErrorMessage } from "@/lib/fetch-helpers";
 import { useShareFlows } from "@/components/use-share-flows";
-import { sanitizeGeneration } from "@/lib/canvas-sanitize";
+import { sanitizeGeneration, sanitizePublicCanvasManifest } from "@/lib/canvas-sanitize";
+import { decodeTinyShare, readStoredShareId, readTinyPayloadFromUrl } from "@/lib/tiny-share";
 
 function emptyPage(): BoardPage {
   return { id: nanoid(8), items: [], layouts: { lg: [], sm: [] } };
@@ -130,11 +137,18 @@ export function Home() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [deleteDialogIds, setDeleteDialogIds] = useState<string[] | null>(null);
   const [maxRows, setMaxRows] = useState(estimateMaxRowsFromViewport);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importInput, setImportInput] = useState("");
+  const [isImporting, setIsImporting] = useState(false);
+  const [saveState, setSaveState] = useState<"saved" | "saving" | "save">("saved");
+  const lastSavedSigRef = useRef<string>("");
   // Keep latest pages in a ref so the unmount blob-URL cleanup can walk them
   // without being a dep of the mount effect. Assignment during render is safe —
   // it doesn't trigger renders.
   const pagesRef = useRef<BoardPage[]>([]);
   pagesRef.current = pages;
+  const generationRef = useRef<GenerateResponse | null>(null);
+  generationRef.current = generation;
 
   const restoreBoard = useCallback(
     (canvas: SharedCanvasData) => {
@@ -145,6 +159,55 @@ export function Home() {
     },
     [navigate],
   );
+
+  const openImportDialog = useCallback(() => {
+    setImportInput("");
+    setImportDialogOpen(true);
+  }, []);
+
+  const importFromInput = useCallback(async () => {
+    const raw = importInput.trim();
+    if (!raw || isImporting) return;
+    setIsImporting(true);
+    try {
+      const tinyPayload = readTinyPayloadFromUrl(raw);
+      if (tinyPayload) {
+        const canvas = await decodeTinyShare(tinyPayload).catch(() => null);
+        if (!canvas) {
+          notify.error("Couldn't read that shared board");
+          return;
+        }
+        restoreBoard(canvas);
+        setImportDialogOpen(false);
+        notify.success("Board imported");
+        return;
+      }
+
+      const storedId = readStoredShareId(raw);
+      if (!storedId) {
+        notify.error("Paste a Shareboard link to import");
+        return;
+      }
+      const res = await fetch(`/api/share?key=${encodeURIComponent(`canvases/${storedId}.json`)}`);
+      if (!res.ok) {
+        notify.error("Couldn't fetch that board (it may be on another host)");
+        return;
+      }
+      const body = (await res.json().catch(() => null)) as unknown;
+      const canvas = sanitizePublicCanvasManifest(body);
+      if (!canvas) {
+        notify.error("That board is locked or not importable");
+        return;
+      }
+      restoreBoard(canvas);
+      setImportDialogOpen(false);
+      notify.success("Board imported");
+    } catch {
+      notify.error("Couldn't import that board");
+    } finally {
+      setIsImporting(false);
+    }
+  }, [importInput, isImporting, restoreBoard]);
 
   const {
     shareState,
@@ -197,12 +260,74 @@ export function Home() {
     setSelectedIds([]);
   }, [activePage]);
 
-  // Mount-only: hydrate localStorage-backed flags, revoke blob URLs on unmount.
+  const currentDraftSig = useMemo(
+    () => draftSignature(pages, generation),
+    [pages, generation],
+  );
+
+  // Save current pages+generation. Reads via refs so the callback identity is
+  // stable across renders — important for the auto-save effect's deps.
+  const writeDraft = useCallback(async (manual: boolean) => {
+    const p = pagesRef.current;
+    const g = generationRef.current;
+    const sig = draftSignature(p, g);
+    setSaveState("saving");
+    try {
+      await saveLocalDraft(p, g);
+      lastSavedSigRef.current = sig;
+      setSaveState("saved");
+      if (manual) notify.success("Saved to this browser");
+    } catch (error) {
+      setSaveState("save");
+      if (manual) {
+        notify.error(error instanceof Error ? error.message : "Couldn't save locally");
+      }
+    }
+  }, []);
+
+  const handleSaveClick = useCallback(() => {
+    void writeDraft(true);
+  }, [writeDraft]);
+
+  // Auto-save with a short debounce. Skips when content matches what's already
+  // persisted (so reflowing layouts or re-rendering doesn't spam writes).
+  useEffect(() => {
+    if (!mounted) return;
+    if (currentDraftSig === lastSavedSigRef.current) {
+      setSaveState((prev) => (prev === "saved" ? prev : "saved"));
+      return;
+    }
+    setSaveState((prev) => (prev === "save" ? prev : "save"));
+    const timer = window.setTimeout(() => {
+      void writeDraft(false);
+    }, 600);
+    return () => window.clearTimeout(timer);
+  }, [mounted, currentDraftSig, writeDraft]);
+
+  // Mount-only: hydrate localStorage-backed flags + IDB draft, revoke blob URLs
+  // on unmount. Mount paint is delayed until the draft load resolves so the
+  // user doesn't see an empty-board flash before their saved work appears.
   useMountEffect(() => {
-    setMounted(true);
     setNeedsSetup(!isSetup());
 
+    let cancelled = false;
+    void loadLocalDraft()
+      .then((draft) => {
+        if (cancelled) return;
+        if (draft) {
+          setPages(draft.pages);
+          setGeneration(draft.generation);
+          lastSavedSigRef.current = draftSignature(draft.pages, draft.generation);
+        } else {
+          lastSavedSigRef.current = draftSignature(pagesRef.current, null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setMounted(true);
+      });
+
     return () => {
+      cancelled = true;
       for (const page of pagesRef.current) {
         for (const item of page.items) {
           if (isDraftImageItem(item)) URL.revokeObjectURL(item.previewUrl);
@@ -456,6 +581,7 @@ export function Home() {
     const allItems = pages.flatMap((p) => p.items.filter((i) => i.type !== "board_summary"));
     if (allItems.length === 0) return;
     setIsGenerating(true);
+    const progress = notifyProgress("Summarizing");
     try {
       const generationItems = allItems.map((item) =>
         item.type === "image"
@@ -468,12 +594,12 @@ export function Home() {
         body: JSON.stringify({ items: generationItems }),
       });
       if (!res.ok) {
-        notify.error(await readErrorMessage(res, "Generation failed"));
+        progress.error(await readErrorMessage(res, "Generation failed"));
         return;
       }
       const data = sanitizeGeneration((await res.json().catch(() => null)) as unknown);
       if (!data) {
-        notify.error("Generation failed");
+        progress.error("Generation failed");
         return;
       }
       setGeneration(data);
@@ -487,9 +613,9 @@ export function Home() {
         return { ...page, items: nextItems, layouts: nextLayouts };
       });
       setActivePage(0);
-      notify.success("Summary generated");
+      progress.success("Summary ready");
     } catch {
-      notify.error("Failed to connect");
+      progress.error("Failed to connect");
     } finally {
       setIsGenerating(false);
     }
@@ -727,6 +853,35 @@ export function Home() {
         <button
           type="button"
           className="board-notch-action"
+          onClick={handleSaveClick}
+          disabled={!hasItems || saveState === "saving"}
+          aria-label="Save board to this browser"
+          title="Save board to this browser"
+        >
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.span
+              key={saveState}
+              className="board-notch-action-content"
+              initial={{ opacity: 0, y: 3 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -3 }}
+              transition={{ duration: 0.16, ease: "easeOut" }}
+            >
+              {saveState === "saving" ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : saveState === "saved" ? (
+                <Check className="h-3.5 w-3.5" />
+              ) : (
+                <Save className="h-3.5 w-3.5" />
+              )}
+              <span>{saveState === "saved" ? "Saved" : "Save"}</span>
+            </motion.span>
+          </AnimatePresence>
+        </button>
+        <span aria-hidden className="board-notch-divider" />
+        <button
+          type="button"
+          className="board-notch-action"
           onClick={share}
           disabled={!hasItems || shareState === "sharing"}
           aria-label="Share board"
@@ -780,6 +935,7 @@ export function Home() {
         onAddPage={addPage}
         onAddImage={(file) => void addImage(file)}
         onAddNote={addNote}
+        onImport={openImportDialog}
         onGenerate={generate}
         onShare={() => setLockedShareOpen(true)}
         onDeleteLastShare={deleteLastShare}
@@ -831,6 +987,49 @@ export function Home() {
               }}
             >
               Remove
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={importDialogOpen}
+        onOpenChange={(open) => {
+          if (!open && isImporting) return;
+          setImportDialogOpen(open);
+        }}
+      >
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>Import a shared board</DialogTitle>
+            <DialogDescription>
+              Paste a Shareboard link to load it onto your canvas. This replaces the current board — share or save it first if you want to keep it.
+            </DialogDescription>
+          </DialogHeader>
+          <input
+            autoFocus
+            placeholder="https://..."
+            value={importInput}
+            onChange={(e) => setImportInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && importInput.trim() && !isImporting) {
+                e.preventDefault();
+                void importFromInput();
+              }
+            }}
+            className="setup-dialog-tile-input"
+          />
+          <DialogFooter className="mt-2">
+            <DialogClose render={<Button type="button" variant="outline" disabled={isImporting} />}>
+              Cancel
+            </DialogClose>
+            <Button
+              type="button"
+              onClick={() => void importFromInput()}
+              disabled={!importInput.trim() || isImporting}
+            >
+              {isImporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              Import
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -198,6 +198,7 @@ export function Canvas({
   return (
     <div
       ref={containerRef}
+      data-share-preview-root
       className="flex-1 w-full min-h-0 min-w-0 p-3 pb-20 md:p-5 md:pb-24 overflow-hidden relative"
       onClick={handleBackgroundClick}
       onDragEnter={acceptDrop ? handleDragEnter : undefined}
@@ -318,7 +319,7 @@ export function Canvas({
                     />
                   )}
                   {item.type === "board_summary" && generation && (
-                    <div className="h-full w-full border border-border/40 bg-card rounded-3xl p-5">
+                    <div className="h-full w-full border border-border/40 bg-card rounded-lg p-5">
                       <SummarySection summary={generation.overall_summary} />
                     </div>
                   )}

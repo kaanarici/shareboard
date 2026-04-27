@@ -145,6 +145,7 @@ export interface PublicCanvasManifest {
   generation?: GenerateResponse;
   createdAt: string;
   deleteTokenHash?: string;
+  previewUrl?: string;
 }
 export type Canvas = PublicCanvasManifest;
 

@@ -15,6 +15,7 @@ import {
   Trash2,
   Plus,
   Layers,
+  Download,
 } from "lucide-react";
 import { X as XIcon } from "@/components/ui/svgs/x";
 import { InstagramIcon } from "@/components/ui/svgs/instagramIcon";
@@ -37,6 +38,7 @@ export function Toolbar({
   onAddPage,
   onAddImage,
   onAddNote,
+  onImport,
   onGenerate,
   onShare,
   onDeleteLastShare,
@@ -56,6 +58,7 @@ export function Toolbar({
   onAddPage: () => void;
   onAddImage: (file: File) => void;
   onAddNote: (text: string) => void;
+  onImport: () => void;
   onGenerate: () => void;
   onShare: () => void;
   onDeleteLastShare: () => void;
@@ -107,6 +110,11 @@ export function Toolbar({
       label: "New page",
       icon: <Layers className="h-4 w-4" />,
       onClick: onAddPage,
+    },
+    {
+      label: "Import shared board",
+      icon: <Download className="h-4 w-4" />,
+      onClick: onImport,
     },
     {
       label: !hasApiKey

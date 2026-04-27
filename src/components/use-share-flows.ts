@@ -18,6 +18,7 @@ import {
   saveLastSharedBoard,
   type BoardHistoryEntry,
 } from "@/lib/store";
+import { capturePreview } from "@/lib/share-preview";
 import { createTinyShareUrl } from "@/lib/tiny-share";
 import { notify } from "@/lib/toast";
 import {
@@ -212,6 +213,12 @@ export function useShareFlows({
             form.set(`image:${item.id}`, item.file, item.file.name || `${item.id}.bin`);
           }
         }
+      }
+
+      const previewNode = document.querySelector<HTMLElement>("[data-share-preview-root]");
+      if (previewNode) {
+        const preview = await capturePreview(previewNode);
+        if (preview) form.set("preview", preview, "preview.png");
       }
 
       const res = await fetch("/api/share", { method: "POST", body: form });
