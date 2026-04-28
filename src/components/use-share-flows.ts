@@ -44,7 +44,7 @@ import {
 export type BoardOrigin =
   | { kind: "draft"; replaceHistoryId?: string }
   | { kind: "stored"; id: string; deleteToken: string }
-  | { kind: "locked"; id: string; deleteToken: string; pin: string };
+  | { kind: "locked"; id: string; deleteToken: string };
 
 type TitleableItem =
   | { type: "note"; text: string }
@@ -140,11 +140,13 @@ export function useShareFlows({
   generation,
   boardOrigin,
   onRestoreBoard,
+  onOriginChange,
 }: {
   pages: BoardPage[];
   generation: GenerateResponse | null;
   boardOrigin: BoardOrigin;
   onRestoreBoard: (canvas: SharedCanvasData, origin: BoardOrigin) => void;
+  onOriginChange: (origin: BoardOrigin) => void;
 }) {
   const [shareState, setShareState] = useState<"idle" | "sharing" | "copied">("idle");
   const [manualShareUrl, setManualShareUrl] = useState("");
@@ -221,6 +223,7 @@ export function useShareFlows({
             pageCount: tinyCanvas.pages.length,
             canvas: tinyCanvas,
           });
+          onOriginChange({ kind: "draft", replaceHistoryId: entryId });
           setHistory(getBoardHistory());
           await finishShare(tinyUrl);
           return;
@@ -284,6 +287,7 @@ export function useShareFlows({
         pageCount: payload.pages.length,
         deleteToken,
       });
+      onOriginChange({ kind: "stored", id, deleteToken });
       setHistory(getBoardHistory());
       if (isReplaceStored) {
         notify.success("Updated link copied");
@@ -299,7 +303,7 @@ export function useShareFlows({
       setShareState("idle");
       notify.error(error instanceof Error ? error.message : "Failed to share");
     }
-  }, [pages, generation, boardOrigin, shareState, isMobile, finishShare, markShareCopied]);
+  }, [pages, generation, boardOrigin, shareState, isMobile, finishShare, markShareCopied, onOriginChange]);
 
   const shareLocked = useCallback(
     async (pin: string) => {
@@ -389,6 +393,7 @@ export function useShareFlows({
           pageCount: securePages.length,
           deleteToken,
         });
+        onOriginChange({ kind: "locked", id: shareId, deleteToken });
         setHistory(getBoardHistory());
         setLockedShareOpen(false);
         if (isReplaceLocked) {
@@ -408,7 +413,7 @@ export function useShareFlows({
         setLockedShareBusy(false);
       }
     },
-    [pages, generation, boardOrigin, lockedShareBusy, shareState, finishShare, markShareCopied],
+    [pages, generation, boardOrigin, lockedShareBusy, shareState, finishShare, markShareCopied, onOriginChange],
   );
 
   const openHistoryEntry = useCallback(
@@ -474,7 +479,6 @@ export function useShareFlows({
           kind: "locked",
           id: entry.id,
           deleteToken: entry.deleteToken,
-          pin: pin.trim(),
         });
         notify.success("Board ready to edit");
       } finally {

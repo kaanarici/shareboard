@@ -152,8 +152,10 @@ export async function clearLocalDraft(): Promise<void> {
 export function draftSignature(
   pages: BoardPage[],
   generation: GenerateResponse | null,
+  boardOrigin: BoardOrigin = { kind: "draft" },
 ): string {
   return JSON.stringify({
+    o: boardOrigin,
     g: generation,
     p: pages.map((page) => ({
       id: page.id,

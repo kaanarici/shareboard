@@ -253,7 +253,13 @@ export function Home() {
     openHistoryEntry,
     removeHistoryEntry,
     markShareCopied,
-  } = useShareFlows({ pages, generation, boardOrigin, onRestoreBoard: restoreBoard });
+  } = useShareFlows({
+    pages,
+    generation,
+    boardOrigin,
+    onRestoreBoard: restoreBoard,
+    onOriginChange: setBoardOrigin,
+  });
 
   const activePage = Math.max(0, Math.min(urlPage - 1, pages.length - 1));
 
@@ -289,17 +295,17 @@ export function Home() {
   }, [activePage]);
 
   const currentDraftSig = useMemo(
-    () => draftSignature(pages, generation),
-    [pages, generation],
+    () => draftSignature(pages, generation, boardOrigin),
+    [pages, generation, boardOrigin],
   );
 
-  // Save current pages+generation. Reads via refs so the callback identity is
+  // Save current pages+generation+origin. Reads via refs so the callback identity is
   // stable across renders — important for the auto-save effect's deps.
   const writeDraft = useCallback(async (manual: boolean) => {
     const p = pagesRef.current;
     const g = generationRef.current;
     const o = boardOriginRef.current;
-    const sig = draftSignature(p, g);
+    const sig = draftSignature(p, g, o);
     setSaveState("saving");
     try {
       await saveLocalDraft(p, g, o);
@@ -359,9 +365,9 @@ export function Home() {
           setPages(draft.pages);
           setGeneration(draft.generation);
           setBoardOrigin(draft.boardOrigin);
-          lastSavedSigRef.current = draftSignature(draft.pages, draft.generation);
+          lastSavedSigRef.current = draftSignature(draft.pages, draft.generation, draft.boardOrigin);
         } else {
-          lastSavedSigRef.current = draftSignature(pagesRef.current, null);
+          lastSavedSigRef.current = draftSignature(pagesRef.current, null, { kind: "draft" });
         }
       })
       .finally(() => {
