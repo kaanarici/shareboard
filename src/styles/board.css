@@ -877,6 +877,7 @@
   color: rgba(10, 10, 10, 0.65);
   font-variant-numeric: tabular-nums;
   user-select: none;
+  white-space: nowrap;
 }
 
 /* ─── Carousel viewport + sliding track ──────────────────────────────── */
@@ -953,11 +954,11 @@
   }
 
   .board-nav-pill-btn {
-    padding: 0 18px;
+    padding: 0 12px;
   }
 
   .board-nav-pill-count {
-    padding: 0 16px;
+    padding: 0 10px;
     font-size: 0.875rem;
   }
 
