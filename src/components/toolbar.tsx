@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { Button } from "@/components/ui/button";
 import { isPlausibleOpenaiApiKey, sanitizeOpenaiApiKeyInput } from "@/lib/openai-api-key";
 import { setApiKey, setName, setProfile, getName, getApiKey, getProfile } from "@/lib/store";
+import { useIsMobile } from "@/lib/use-is-mobile";
 import {
   Check,
   Clock3,
@@ -14,12 +15,12 @@ import {
   Loader2,
   Trash2,
   Plus,
-  Layers,
   Download,
   Copy,
   Pencil,
   FilePlus,
   ClipboardPaste,
+  FileStack,
 } from "lucide-react";
 import { copyText } from "@/lib/clipboard";
 import { notify } from "@/lib/toast";
@@ -71,6 +72,7 @@ export function Toolbar({
   onOpenHistoryEntry: (entry: BoardHistoryEntry) => void;
   onRemoveHistoryEntry: (entry: BoardHistoryEntry) => void;
 }) {
+  const isMobile = useIsMobile();
   // Single source of truth for which toolbar menu (if any) is open. base-ui's
   // Popover dropped second-click toggles via stickIfOpen + PATIENT_CLICK_THRESHOLD;
   // we mirror ActionFan's pattern instead. The document-level mousedown listener
@@ -107,11 +109,15 @@ export function Toolbar({
       icon: <ClipboardPaste className="h-4 w-4" />,
       onClick: onPasteLink,
     },
-    {
-      label: "Text note",
-      icon: <Type className="h-4 w-4" />,
-      onClick: () => onAddNote(""),
-    },
+    // Inline-create on desktop (faster than opening the paste dialog).
+    // On mobile it's redundant with "Paste link or note", so it's hidden.
+    ...(isMobile
+      ? []
+      : [{
+          label: "Text note",
+          icon: <Type className="h-4 w-4" />,
+          onClick: () => onAddNote(""),
+        } satisfies ActionFanItem]),
     {
       label: "Upload image",
       icon: <ImagePlus className="h-4 w-4" />,
@@ -119,7 +125,7 @@ export function Toolbar({
     },
     {
       label: "New page",
-      icon: <Layers className="h-4 w-4" />,
+      icon: <FileStack className="h-4 w-4" />,
       onClick: onAddPage,
     },
     {
@@ -127,20 +133,20 @@ export function Toolbar({
       icon: <Download className="h-4 w-4" />,
       onClick: onImport,
     },
-    {
-      label: !hasApiKey
-        ? "Summarize board (add an OpenAI key first)"
-        : !hasItems
-        ? "Summarize board (add an item first)"
-        : "Summarize board",
-      icon: isGenerating ? (
-        <Loader2 className="h-4 w-4 animate-spin" />
-      ) : (
-        <Sparkles className="h-4 w-4" />
-      ),
-      onClick: onGenerate,
-      disabled: isGenerating || !hasApiKey || !hasItems,
-    },
+    // Summarize is hidden until the board has content — there's nothing to
+    // summarize otherwise, and the disabled-button shape was just noise.
+    ...(hasItems
+      ? [{
+          label: hasApiKey ? "Summarize board" : "Summarize board (add an OpenAI key first)",
+          icon: isGenerating ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Sparkles className="h-4 w-4" />
+          ),
+          onClick: onGenerate,
+          disabled: isGenerating || !hasApiKey,
+        } satisfies ActionFanItem]
+      : []),
     {
       label: "Locked share",
       icon: <LockKeyhole className="h-4 w-4" />,
@@ -284,7 +290,9 @@ export function Toolbar({
             onToggle={() => toggleMenu("history")}
             onClose={closeMenu}
             ariaLabel="Recent boards"
-            popupClassName="board-popover board-popover--history"
+            popupClassName={`board-popover board-popover--history${
+              history.length === 0 ? " board-popover--history-empty" : ""
+            }`}
             triggerIcon={<Clock3 className="h-4 w-4 text-foreground/60" />}
           >
             <div className="board-popover-section board-history">
@@ -301,7 +309,7 @@ export function Toolbar({
                 <span className="board-history-title">New board</span>
               </button>
               {history.length === 0 ? (
-                <div className="board-history-empty">Recent shares appear here.</div>
+                <div className="board-history-empty">Recent boards appear here.</div>
               ) : (
                 history.map((entry) => {
                   const canEdit = entry.kind === "tiny" || !!entry.deleteToken;
@@ -393,6 +401,7 @@ export function Toolbar({
             triggerClassName="board-toolbar-add"
             trigger={<Plus className="h-5 w-5" strokeWidth={2.25} />}
             items={fanItems}
+            radius={isMobile ? 108 : 96}
           />
         </div>
 

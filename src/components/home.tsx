@@ -318,6 +318,18 @@ export function Home() {
     void writeDraft(true);
   }, [writeDraft]);
 
+  // Show the "Saved" word briefly after a save lands, then collapse to just
+  // the check icon — keeps the notch quiet once everything is in sync.
+  const [showSavedLabel, setShowSavedLabel] = useState(false);
+  useEffect(() => {
+    if (saveState === "saved") {
+      setShowSavedLabel(true);
+      const t = window.setTimeout(() => setShowSavedLabel(false), 1500);
+      return () => window.clearTimeout(t);
+    }
+    setShowSavedLabel(false);
+  }, [saveState]);
+
   // Auto-save with a short debounce. Skips when content matches what's already
   // persisted (so reflowing layouts or re-rendering doesn't spam writes).
   useEffect(() => {
@@ -889,35 +901,56 @@ export function Home() {
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
       <div className="board-notch" data-locked={needsSetup || undefined}>
-        <button
-          type="button"
-          className="board-notch-action"
-          onClick={handleSaveClick}
-          disabled={!hasItems || saveState === "saving"}
-          aria-label="Save board to this browser"
-          title="Save board to this browser"
-        >
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.span
-              key={saveState}
-              className="board-notch-action-content"
-              initial={{ opacity: 0, y: 3 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -3 }}
-              transition={{ duration: 0.16, ease: "easeOut" }}
+        {hasItems && (
+          <>
+            <button
+              type="button"
+              className="board-notch-action"
+              onClick={handleSaveClick}
+              disabled={saveState === "saving"}
+              aria-label="Save board to this browser"
+              title="Save board to this browser"
             >
-              {saveState === "saving" ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : saveState === "saved" ? (
-                <Check className="h-3.5 w-3.5" />
-              ) : (
-                <Save className="h-3.5 w-3.5" />
-              )}
-              <span>{saveState === "saved" ? "Saved" : "Save"}</span>
-            </motion.span>
-          </AnimatePresence>
-        </button>
-        <span aria-hidden className="board-notch-divider" />
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.span
+                  key={saveState}
+                  className="board-notch-action-content"
+                  initial={{ opacity: 0, y: 3 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -3 }}
+                  transition={{ duration: 0.16, ease: "easeOut" }}
+                >
+                  {saveState === "saving" ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : saveState === "saved" ? (
+                    <Check className="h-3.5 w-3.5" />
+                  ) : (
+                    <Save className="h-3.5 w-3.5" />
+                  )}
+                  <AnimatePresence initial={false}>
+                    {saveState !== "saved" || showSavedLabel ? (
+                      <motion.span
+                        key="label"
+                        initial={{ opacity: 0, width: 0 }}
+                        animate={{ opacity: 1, width: "auto" }}
+                        exit={{ opacity: 0, width: 0 }}
+                        transition={{ duration: 0.18, ease: "easeOut" }}
+                        style={{ display: "inline-block", overflow: "hidden", whiteSpace: "nowrap" }}
+                      >
+                        {saveState === "saving"
+                          ? "Saving"
+                          : saveState === "saved"
+                          ? "Saved"
+                          : "Save"}
+                      </motion.span>
+                    ) : null}
+                  </AnimatePresence>
+                </motion.span>
+              </AnimatePresence>
+            </button>
+            <span aria-hidden className="board-notch-divider" />
+          </>
+        )}
         <button
           type="button"
           className="board-notch-action"

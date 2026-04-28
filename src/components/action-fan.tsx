@@ -1,6 +1,7 @@
 import { useRef, useState, type ReactNode } from "react";
-import { motion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import { useMountEffect } from "@/lib/use-mount-effect";
+import { useIsMobile } from "@/lib/use-is-mobile";
 
 const RADIUS = 96;
 const ITEM_SIZE = 44;
@@ -17,10 +18,13 @@ export function ActionFan({
   trigger,
   items,
   triggerClassName,
+  radius = RADIUS,
 }: {
   trigger: ReactNode;
   items: ActionFanItem[];
   triggerClassName?: string;
+  /** Override the polar radius. Mobile passes a larger value so 56px items don't overlap. */
+  radius?: number;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -51,16 +55,29 @@ export function ActionFan({
   });
 
   const n = items.length;
+  const isMobile = useIsMobile();
 
   return (
     <div ref={containerRef} className="action-fan">
+      <AnimatePresence>
+        {isOpen && isMobile && (
+          <motion.div
+            key="backdrop"
+            className="action-fan-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.18, ease: "easeOut" }}
+          />
+        )}
+      </AnimatePresence>
       {items.map((item, i) => {
         // Top arc centered on straight-up (0). Wider spread keeps adjacent
         // buttons from touching when several items are in the fan.
         const arc = (ARC_DEGREES * Math.PI) / 180;
         const angle = n === 1 ? 0 : -arc / 2 + (arc * i) / (n - 1);
-        const x = RADIUS * Math.sin(angle);
-        const y = -RADIUS * Math.cos(angle);
+        const x = radius * Math.sin(angle);
+        const y = -radius * Math.cos(angle);
         return (
           <FanItem
             key={i}

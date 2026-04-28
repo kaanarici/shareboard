@@ -306,6 +306,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  /* Lift above the backdrop fade so the trigger + fan items remain in front
+   * while the rest of the toolbar (z:50) sits behind. */
+  z-index: 70;
 }
 
 .action-fan-item {
@@ -368,6 +371,13 @@
 /* Subtle press feedback on the trigger when the fan is open */
 .board-toolbar-add[data-fan-open] {
   background-color: #ffffff;
+}
+
+/* Trigger sits in the same stacking context as fan items so the backdrop
+ * fade (z:0 within .action-fan) doesn't dim the trigger. */
+.action-fan > .board-toolbar-add {
+  position: relative;
+  z-index: 1;
 }
 
 /* ─── Plus button — circular, with a real pressed feel ──────────────── */
@@ -482,6 +492,15 @@
 
 .board-popover--history {
   width: min(100vw - 2rem, 19rem);
+}
+
+.board-popover--history-empty {
+  width: auto;
+}
+
+.board-popover--history-empty .board-history-empty {
+  padding: 0.5rem 0.75rem;
+  white-space: nowrap;
 }
 
 .board-popover-section {
@@ -883,4 +902,72 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+}
+
+/* ─── Backdrop fade behind the open fan ──────────────────────────────
+ * When the action fan opens on mobile, fan items naturally hover over
+ * the existing settings/history/page-nav buttons. A soft backdrop fade
+ * pushes the bottom row visually behind the fan so the new actions are
+ * the unambiguous focus, and reverses smoothly on close. */
+
+.action-fan-backdrop {
+  /* Rendered inside .action-fan, which establishes a z:70 stacking context.
+   * Within that context the backdrop sits at z:0 — below the fan items (z:1)
+   * — but its position:fixed makes it cover the viewport, and the parent
+   * context's z:70 places it ABOVE the rest of the toolbar (z:50). Net: the
+   * blurred fade hides the bottom-row buttons while the fan items remain
+   * crisp above it. */
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  pointer-events: none;
+}
+
+/* ─── Mobile touch-target scaling ───────────────────────────────────
+ * Below the LG breakpoint we bump the bottom toolbar's pill, plus
+ * button, page-nav, and fan items so they meet the generous-tap-target
+ * bar (≥56px), lift the toolbar above the iOS home indicator via the
+ * safe-area inset, and equalize the icon-pill family so the bottom row
+ * reads as one consistent touch language. Placed at the end of the file
+ * so its rules win the cascade against the desktop defaults defined
+ * earlier. */
+
+@media (max-width: 767px) {
+  .board-toolbar {
+    bottom: max(1.25rem, calc(env(safe-area-inset-bottom) + 0.75rem));
+    padding: 0 1rem;
+    gap: 0.75rem;
+  }
+
+  .board-toolbar-add,
+  .board-toolbar-icon {
+    width: 56px;
+    height: 56px;
+  }
+
+  .board-nav-pill {
+    height: 56px;
+  }
+
+  .board-nav-pill-btn {
+    padding: 0 18px;
+  }
+
+  .board-nav-pill-count {
+    padding: 0 16px;
+    font-size: 0.875rem;
+  }
+
+  /* The component centers each fan item via negative margins equal to
+   * half its size; we override the inline values to match the larger
+   * touch target. */
+  .action-fan-item {
+    width: 56px !important;
+    height: 56px !important;
+    margin-left: -28px !important;
+    margin-top: -28px !important;
+  }
 }
