@@ -1,5 +1,7 @@
 import { deleteObject, getObjectKeyFromPublicUrlAsync, getObjectText, putObject } from "@/lib/r2";
-import type { Canvas, EncryptedCanvasEnvelope, SharedCanvasItem } from "@/lib/types";
+import type { Canvas, EncryptedCanvasEnvelope, SharedBoardPage, SharedCanvasItem, StoredCanvas } from "@/lib/types";
+
+type StoredImageItem = Extract<SharedCanvasItem, { type: "image" }>;
 
 export function publicCanvasKey(id: string) {
   return `canvases/${id}.json`;
@@ -59,6 +61,87 @@ export async function deleteObjectsStrict(keys: readonly string[]) {
 
 export async function deletePreviewBestEffort(id: string) {
   await deleteObject(previewKey(id)).catch(() => undefined);
+}
+
+export function indexStoredCanvasImages(canvas: Canvas): Map<string, StoredImageItem> {
+  const map = new Map<string, StoredImageItem>();
+  for (const page of canvas.pages) {
+    for (const item of page.items) {
+      if (item.type === "image") map.set(item.id, item);
+    }
+  }
+  return map;
+}
+
+export function collectStoredImageObjectKeys(pages: SharedBoardPage[]): Set<string> {
+  const keys = new Set<string>();
+  for (const page of pages) {
+    for (const item of page.items) {
+      if (item.type === "image" && item.objectKey) keys.add(item.objectKey);
+    }
+  }
+  return keys;
+}
+
+export function getPublicReplaceState(canvas: Canvas): {
+  reuseImagesById: Map<string, StoredImageItem>;
+  priorImageKeys: string[];
+  priorPreviewUrl: string | undefined;
+} {
+  const reuseImagesById = indexStoredCanvasImages(canvas);
+  return {
+    reuseImagesById,
+    priorImageKeys: Array.from(reuseImagesById.values())
+      .map((img) => img.objectKey)
+      .filter((key): key is string => !!key),
+    priorPreviewUrl: canvas.previewUrl,
+  };
+}
+
+export function getLockedReplaceState(canvas: EncryptedCanvasEnvelope): { priorImageKeys: string[] } {
+  return { priorImageKeys: canvas.images.map((img) => img.key) };
+}
+
+export async function commitPublicCanvas(params: {
+  id: string;
+  canvas: Canvas;
+  cacheControl: string;
+  replace?: { priorImageKeys: readonly string[] };
+}) {
+  const { id, canvas, cacheControl, replace } = params;
+  await writePublicCanvas(id, JSON.stringify(canvas), cacheControl);
+  if (replace) {
+    await cleanupReplacedObjects(replace.priorImageKeys, collectStoredImageObjectKeys(canvas.pages));
+  }
+}
+
+export async function commitLockedCanvas(params: {
+  lockedKey: string;
+  canvas: EncryptedCanvasEnvelope;
+  replace?: { priorImageKeys: readonly string[] };
+}) {
+  const { lockedKey, canvas, replace } = params;
+  await writeLockedCanvas(lockedKey, JSON.stringify(canvas));
+  if (replace) {
+    await cleanupReplacedObjects(
+      replace.priorImageKeys,
+      canvas.images.map((image) => image.key)
+    );
+  }
+}
+
+export async function deleteStoredCanvas(params: {
+  id: string;
+  canvasKey: string;
+  canvas: StoredCanvas;
+}) {
+  const { id, canvasKey, canvas } = params;
+  const keys = "images" in canvas ? collectLockedCanvasImageKeys(canvas) : await collectPublicCanvasImageKeys(canvas);
+  await deleteObjectsStrict(keys);
+  await deleteObjectsStrict([canvasKey]);
+  if (!("images" in canvas)) {
+    await deletePreviewBestEffort(id);
+  }
 }
 
 export async function collectPublicCanvasImageKeys(canvas: Canvas): Promise<string[]> {

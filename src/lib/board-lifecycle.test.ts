@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
+  __boardLifecyclePolicyForTests,
   addItemWithSpillToPages,
+  duplicateItemOnPage,
   editorPagesFromCanvas,
   emptyBoardPage,
   removeItemsFromPage,
@@ -63,6 +65,76 @@ describe("board lifecycle", () => {
     expect(next.items.map((item) => item.id)).toEqual(["keep"]);
     expect(next.layouts.lg.map((item) => item.i)).toEqual(["keep"]);
     expect(next.layouts.sm.map((item) => item.i)).toEqual(["keep"]);
+  });
+
+  test("removes draft-image previews via adapter while applying pure state removal", () => {
+    const page: BoardPage = {
+      id: "page",
+      items: [
+        {
+          id: "img",
+          type: "image",
+          file: new File(["x"], "x.png", { type: "image/png" }),
+          previewUrl: "blob:img",
+        },
+        { id: "note", type: "note", text: "keep" },
+      ],
+      layouts: {
+        lg: [
+          { i: "img", x: 0, y: 0, w: 4, h: 4 },
+          { i: "note", x: 4, y: 0, w: 4, h: 4 },
+        ],
+        sm: [
+          { i: "img", x: 0, y: 0, w: 1, h: 4 },
+          { i: "note", x: 0, y: 4, w: 1, h: 4 },
+        ],
+      },
+    };
+    const revoked: string[] = [];
+    const ids = new Set(["img"]);
+
+    const next = removeItemsFromPage(page, ids, {
+      create() {
+        throw new Error("not used");
+      },
+      revoke(url) {
+        revoked.push(url);
+      },
+    });
+
+    const pure = __boardLifecyclePolicyForTests.removeItemsFromPageState(page, ids);
+    expect(next).toEqual(pure);
+    expect(revoked).toEqual(["blob:img"]);
+  });
+
+  test("duplicates draft images via preview adapter", () => {
+    const page: BoardPage = {
+      id: "page",
+      items: [
+        {
+          id: "img",
+          type: "image",
+          file: new File(["x"], "x.png", { type: "image/png" }),
+          previewUrl: "blob:old",
+        },
+      ],
+      layouts: { lg: [], sm: [] },
+    };
+    const created: string[] = [];
+    const result = duplicateItemOnPage(page, "img", 100, {
+      create(file) {
+        created.push(file.name);
+        return "blob:new";
+      },
+      revoke() {
+        throw new Error("not used");
+      },
+    });
+
+    expect(result).not.toBeNull();
+    expect(created).toEqual(["x.png"]);
+    const duplicated = result!.page.items.find((item) => item.id === result!.newId);
+    expect(duplicated).toMatchObject({ type: "image", previewUrl: "blob:new" });
   });
 
   test("spills a new item to the next page when the active page is full", () => {

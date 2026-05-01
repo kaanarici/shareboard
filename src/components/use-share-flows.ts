@@ -2,11 +2,6 @@ import { useCallback, useRef, useState } from "react";
 import type { BoardOrigin } from "@/lib/board-origin";
 import { useMountEffect } from "@/lib/use-mount-effect";
 import { copyText } from "@/lib/clipboard";
-import {
-  createLockedShareId,
-  createLockedSharePackage,
-  type LockedImageUpload,
-} from "@/lib/encrypted-share";
 import { readErrorMessage } from "@/lib/fetch-helpers";
 import {
   clearLastSharedBoard,
@@ -19,26 +14,15 @@ import {
   saveLastSharedBoard,
   type BoardHistoryEntry,
 } from "@/lib/store";
-import { capturePreview } from "@/lib/share-preview";
 import { fetchStoredCanvas, unlockSharedBoard } from "@/lib/board-import";
-import {
-  canvasFromTextOnlyPayload,
-  collectSharePayload,
-  countPayloadItems,
-  getBoardTitle,
-  getHistorySubtitle,
-  hasImageItems,
-  resolveTinyHistoryEntryId,
-} from "@/lib/share-prep";
-import { createTinyShareUrl } from "@/lib/tiny-share";
+import { createHistoryEntry, prepareLockedShare, preparePublicShare } from "@/lib/share-workflow";
 import { useIsMobile } from "@/lib/use-is-mobile";
 import { notify } from "@/lib/toast";
 import {
-  isDraftImageItem,
-  isShareCreateResponse,
   type BoardPage,
   type Canvas as SharedCanvasData,
   type GenerateResponse,
+  isShareCreateResponse,
 } from "@/lib/types";
 
 async function readShareCreateResponse(res: Response) {
@@ -103,84 +87,37 @@ export function useShareFlows({
     if (shareState === "sharing") return;
     setShareState("sharing");
     try {
-      const form = new FormData();
-      const payload = collectSharePayload({
+      const draft = await preparePublicShare({
         pages,
         generation,
         author: getName(),
         authorProfile: getProfile(),
+        boardOrigin,
+        baseUrl: window.location.origin,
+        isMobile,
+        previewRoot: document.querySelector<HTMLElement>("[data-share-preview-root]"),
       });
 
-      form.set("payload", JSON.stringify(payload));
-      const itemCount = countPayloadItems(payload);
-      const title = getBoardTitle(payload.pages);
-
-      const isReplaceStored = boardOrigin.kind === "stored";
-      const hasImages = hasImageItems(pages);
-
-      // Tiny path: only when there are no images AND this isn't a stored-replace
-      // (replace must hit the same /c/{id} URL, which requires the stored path).
-      if (!hasImages && !isReplaceStored) {
-        const tinyCanvas = canvasFromTextOnlyPayload({
-          payload,
-          generation,
-          authorProfile: getProfile(),
-          createdAt: new Date().toISOString(),
-        });
-        const tinyUrl = await createTinyShareUrl(tinyCanvas, window.location.origin);
-        if (tinyUrl) {
-          clearLastSharedBoard();
-          const entryId = resolveTinyHistoryEntryId(boardOrigin, Date.now());
-          saveBoardHistory({
-            id: entryId,
-            kind: "tiny",
-            title,
-            subtitle: getHistorySubtitle("tiny", tinyCanvas.pages.length, itemCount),
-            shareUrl: tinyUrl,
-            createdAt: tinyCanvas.createdAt,
-            itemCount,
-            pageCount: tinyCanvas.pages.length,
-            canvas: tinyCanvas,
-          });
-          onOriginChange({ kind: "draft", replaceHistoryId: entryId });
-          setHistory(getBoardHistory());
-          await finishShare(tinyUrl);
-          return;
-        }
+      if (draft.kind === "tiny") {
+        clearLastSharedBoard();
+        saveBoardHistory(createHistoryEntry({
+          id: draft.historyEntryId,
+          kind: "tiny",
+          shareUrl: draft.url,
+          metadata: draft.metadata,
+          canvas: draft.canvas,
+        }));
+        onOriginChange({ kind: "draft", replaceHistoryId: draft.historyEntryId });
+        setHistory(getBoardHistory());
+        await finishShare(draft.url);
+        return;
       }
 
-      for (const page of pages) {
-        for (const item of page.items) {
-          if (item.type === "board_summary") continue;
-          if (isDraftImageItem(item)) {
-            form.set(`image:${item.id}`, item.file, item.file.name || `${item.id}.bin`);
-          }
-        }
-      }
-
-      // Skip the OG-card capture on mobile: the live DOM is a single-column
-      // stack, not the desktop 1200×630 shape, so a snapshot would look wrong.
-      // The server preserves the prior previewUrl on replace when no new
-      // preview is uploaded, so a desktop-captured preview survives a mobile
-      // edit.
-      if (!isMobile) {
-        const previewNode = document.querySelector<HTMLElement>("[data-share-preview-root]");
-        if (previewNode) {
-          const preview = await capturePreview(previewNode);
-          if (preview) form.set("preview", preview, "preview.png");
-        }
-      }
-
-      if (isReplaceStored) {
-        form.set("replaceId", boardOrigin.id);
-        form.set("replaceToken", boardOrigin.deleteToken);
-      }
-
-      const res = await fetch("/api/share", { method: "POST", body: form });
+      const res = await fetch("/api/share", { method: "POST", body: draft.form });
       if (!res.ok) {
         setShareState("idle");
         const message = await readErrorMessage(res, "Failed to share");
-        if (isReplaceStored && (res.status === 403 || res.status === 404)) {
+        if (draft.isReplace && (res.status === 403 || res.status === 404)) {
           notify.error("This share was edited or removed elsewhere. Refresh to continue.");
         } else {
           notify.error(message);
@@ -190,25 +127,19 @@ export function useShareFlows({
       const { id, deleteToken } = await readShareCreateResponse(res);
       const shareUrl = `${window.location.origin}/c/${id}`;
       saveLastSharedBoard({ id, deleteToken, shareUrl });
-      // Editing a tiny entry that now contains images promotes it to a stored
-      // share — drop the old tiny row so the user sees one entry, not two.
-      if (boardOrigin.kind === "draft" && boardOrigin.replaceHistoryId) {
-        removeBoardHistoryEntry(boardOrigin.replaceHistoryId);
+      if (draft.replaceHistoryId) {
+        removeBoardHistoryEntry(draft.replaceHistoryId);
       }
-      saveBoardHistory({
+      saveBoardHistory(createHistoryEntry({
         id,
         kind: "stored",
-        title,
-        subtitle: getHistorySubtitle("stored", payload.pages.length, itemCount),
         shareUrl,
-        createdAt: new Date().toISOString(),
-        itemCount,
-        pageCount: payload.pages.length,
+        metadata: draft.metadata,
         deleteToken,
-      });
+      }));
       onOriginChange({ kind: "stored", id, deleteToken });
       setHistory(getBoardHistory());
-      if (isReplaceStored) {
+      if (draft.isReplace) {
         notify.success("Updated link copied");
         if (await copyText(shareUrl)) markShareCopied();
         else {
@@ -229,71 +160,19 @@ export function useShareFlows({
       if (lockedShareBusy || shareState === "sharing") return;
       setLockedShareBusy(true);
       setShareState("sharing");
-      const isReplaceLocked = boardOrigin.kind === "locked";
       try {
-        const id = isReplaceLocked ? boardOrigin.id : createLockedShareId();
-        const createdAt = new Date().toISOString();
-        const imageUploads: LockedImageUpload[] = [];
-        const securePages: SharedCanvasData["pages"] = [];
-
-        for (const page of pages) {
-          const items: SharedCanvasData["pages"][number]["items"] = [];
-          for (const item of page.items) {
-            if (item.type === "board_summary") continue;
-            if (item.type !== "image") {
-              items.push(item);
-              continue;
-            }
-
-            const key = `images/${id}/${page.id}/${item.id}`;
-            const source = isDraftImageItem(item)
-              ? item.file
-              : await fetch(item.url).then((res) => {
-                  if (!res.ok) throw new Error("Could not prepare image for locked share");
-                  return res.blob();
-                });
-            imageUploads.push({ id: item.id, pageId: page.id, key, file: source });
-            items.push({
-              id: item.id,
-              type: "image",
-              url: "",
-              objectKey: key,
-              mimeType: item.mimeType,
-              size: item.size,
-              caption: item.caption,
-            });
-          }
-          securePages.push({ id: page.id, layouts: page.layouts, items });
-        }
-
-        const itemCount = securePages.reduce((n, page) => n + page.items.length, 0);
-        const title = getBoardTitle(securePages);
-        const canvas: SharedCanvasData = {
-          id,
-          author: getName() || "Anonymous",
+        const draft = await prepareLockedShare({
+          pages,
+          generation,
+          boardOrigin,
+          pin,
+          author: getName(),
           authorProfile: getProfile(),
-          pages: securePages,
-          ...(generation ? { generation } : {}),
-          createdAt,
-        };
-        const locked = await createLockedSharePackage(pin, canvas, imageUploads);
-        const form = new FormData();
-        form.set("pin", pin);
-        form.set("encryptedPayload", JSON.stringify(locked.envelope));
-        for (const file of locked.files) {
-          form.set(
-            `encrypted-image:${file.id}`,
-            new File([file.data], `${file.id}.bin`, { type: "application/octet-stream" }),
-          );
-        }
-        if (isReplaceLocked) {
-          form.set("replaceId", boardOrigin.id);
-          form.set("replaceToken", boardOrigin.deleteToken);
-        }
+        });
 
-        const res = await fetch("/api/share", { method: "POST", body: form });
+        const res = await fetch("/api/share", { method: "POST", body: draft.form });
         if (!res.ok) {
-          if (isReplaceLocked && (res.status === 403 || res.status === 404)) {
+          if (draft.isReplace && (res.status === 403 || res.status === 404)) {
             throw new Error("This share was edited or removed elsewhere. Refresh to continue.");
           }
           throw new Error(await readErrorMessage(res, "Failed to create locked share"));
@@ -301,21 +180,17 @@ export function useShareFlows({
         const { id: shareId, deleteToken } = await readShareCreateResponse(res);
         const shareUrl = `${window.location.origin}/c/${shareId}`;
         saveLastSharedBoard({ id: shareId, deleteToken, shareUrl });
-        saveBoardHistory({
+        saveBoardHistory(createHistoryEntry({
           id: shareId,
           kind: "locked",
-          title,
-          subtitle: getHistorySubtitle("locked", securePages.length, itemCount),
           shareUrl,
-          createdAt,
-          itemCount,
-          pageCount: securePages.length,
+          metadata: draft.metadata,
           deleteToken,
-        });
+        }));
         onOriginChange({ kind: "locked", id: shareId, deleteToken });
         setHistory(getBoardHistory());
         setLockedShareOpen(false);
-        if (isReplaceLocked) {
+        if (draft.isReplace) {
           notify.success("Updated link copied");
           if (await copyText(shareUrl)) markShareCopied();
           else {

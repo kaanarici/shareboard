@@ -25,7 +25,34 @@ interface StoredDraft {
   boardOrigin?: BoardOrigin;
 }
 
-function hasIdb() {
+interface DraftSnapshot {
+  pages: BoardPage[];
+  generation: GenerateResponse | null;
+  boardOrigin: BoardOrigin;
+}
+
+interface DraftSerializationAdapter {
+  createPreviewUrl(file: File): string;
+  isFile(value: unknown): value is File;
+}
+
+interface DraftStoreAdapter {
+  available: boolean;
+  load(): Promise<StoredDraft | undefined>;
+  save(snapshot: StoredDraft): Promise<void>;
+  clear(): Promise<void>;
+}
+
+const browserSerializationAdapter: DraftSerializationAdapter = {
+  createPreviewUrl(file) {
+    return URL.createObjectURL(file);
+  },
+  isFile(value): value is File {
+    return value instanceof File;
+  },
+};
+
+function hasIndexedDb() {
   return typeof window !== "undefined" && typeof indexedDB !== "undefined";
 }
 
@@ -57,6 +84,27 @@ async function withStore<T>(
   }
 }
 
+function createIndexedDbDraftStore(): DraftStoreAdapter {
+  return {
+    available: hasIndexedDb(),
+    async load() {
+      return withStore<StoredDraft | undefined>("readonly", (store) => store.get(KEY));
+    },
+    async save(snapshot) {
+      await withStore("readwrite", (store) => {
+        store.put(snapshot, KEY);
+      });
+    },
+    async clear() {
+      await withStore("readwrite", (store) => {
+        store.delete(KEY);
+      });
+    },
+  };
+}
+
+const indexedDbDraftStore = createIndexedDbDraftStore();
+
 /**
  * Strip transient fields that don't survive serialization (blob: previewUrls).
  * The File handle structured-clones into IDB natively, so we keep it; on load
@@ -72,13 +120,13 @@ function stripForStorage(items: CanvasItem[]): unknown[] {
   });
 }
 
-function rehydrate(items: unknown[]): CanvasItem[] {
+function rehydrate(items: unknown[], adapter: DraftSerializationAdapter): CanvasItem[] {
   const out: CanvasItem[] = [];
   for (const raw of items) {
     if (!raw || typeof raw !== "object") continue;
     const item = raw as Record<string, unknown>;
-    if (item.type === "image" && item.file instanceof File) {
-      out.push({ ...item, previewUrl: URL.createObjectURL(item.file) } as CanvasItem);
+    if (item.type === "image" && adapter.isFile(item.file)) {
+      out.push({ ...item, previewUrl: adapter.createPreviewUrl(item.file) } as CanvasItem);
     } else {
       out.push(item as unknown as CanvasItem);
     }
@@ -86,13 +134,12 @@ function rehydrate(items: unknown[]): CanvasItem[] {
   return out;
 }
 
-export async function saveLocalDraft(
+function createStoredDraftSnapshot(
   pages: BoardPage[],
   generation: GenerateResponse | null,
   boardOrigin: BoardOrigin = { kind: "draft" },
-): Promise<void> {
-  if (!hasIdb()) throw new Error("Local storage unavailable");
-  const snapshot: StoredDraft = {
+): StoredDraft {
+  return {
     v: 2,
     generation,
     pages: pages.map((page) => ({
@@ -101,40 +148,48 @@ export async function saveLocalDraft(
     })),
     boardOrigin,
   };
-  await withStore("readwrite", (store) => {
-    store.put(snapshot, KEY);
-  });
 }
 
-export async function loadLocalDraft(): Promise<{
-  pages: BoardPage[];
-  generation: GenerateResponse | null;
-  boardOrigin: BoardOrigin;
-} | null> {
-  if (!hasIdb()) return null;
+function restoreStoredDraftSnapshot(
+  raw: StoredDraft | undefined,
+  adapter: DraftSerializationAdapter = browserSerializationAdapter,
+): DraftSnapshot | null {
+  if (!raw || raw.v !== 2 || !Array.isArray(raw.pages) || raw.pages.length === 0) return null;
+  return {
+    pages: raw.pages.map((page) => ({
+      id: page.id,
+      layouts: page.layouts ?? { lg: [], sm: [] },
+      items: rehydrate(page.items ?? [], adapter),
+    })),
+    generation: raw.generation ?? null,
+    boardOrigin: raw.boardOrigin ?? { kind: "draft" },
+  };
+}
+
+export async function saveLocalDraft(
+  pages: BoardPage[],
+  generation: GenerateResponse | null,
+  boardOrigin: BoardOrigin = { kind: "draft" },
+): Promise<void> {
+  if (!indexedDbDraftStore.available) throw new Error("Local storage unavailable");
+  const snapshot = createStoredDraftSnapshot(pages, generation, boardOrigin);
+  await indexedDbDraftStore.save(snapshot);
+}
+
+export async function loadLocalDraft(): Promise<DraftSnapshot | null> {
+  if (!indexedDbDraftStore.available) return null;
   try {
-    const raw = await withStore<StoredDraft | undefined>("readonly", (store) => store.get(KEY));
-    if (!raw || raw.v !== 2 || !Array.isArray(raw.pages) || raw.pages.length === 0) return null;
-    return {
-      pages: raw.pages.map((page) => ({
-        id: page.id,
-        layouts: page.layouts ?? { lg: [], sm: [] },
-        items: rehydrate(page.items ?? []),
-      })),
-      generation: raw.generation ?? null,
-      boardOrigin: raw.boardOrigin ?? { kind: "draft" },
-    };
+    const raw = await indexedDbDraftStore.load();
+    return restoreStoredDraftSnapshot(raw, browserSerializationAdapter);
   } catch {
     return null;
   }
 }
 
 export async function clearLocalDraft(): Promise<void> {
-  if (!hasIdb()) return;
+  if (!indexedDbDraftStore.available) return;
   try {
-    await withStore("readwrite", (store) => {
-      store.delete(KEY);
-    });
+    await indexedDbDraftStore.clear();
   } catch {
     /* ignore */
   }
@@ -176,3 +231,10 @@ export function draftSignature(
     })),
   });
 }
+
+export const __draftPolicyForTests = {
+  createStoredDraftSnapshot,
+  restoreStoredDraftSnapshot,
+  stripForStorage,
+  rehydrate,
+};

@@ -7,17 +7,15 @@ import {
   putBuffer,
 } from "@/lib/r2";
 import {
-  cleanupReplacedObjects,
-  collectLockedCanvasImageKeys,
-  collectPublicCanvasImageKeys,
-  deleteObjectsStrict,
-  deletePreviewBestEffort,
+  commitLockedCanvas,
+  commitPublicCanvas,
+  deleteStoredCanvas,
+  getLockedReplaceState,
+  getPublicReplaceState,
   readLockedCanvasRaw,
   readPublicCanvasRaw,
   readShareRawForDelete,
   rollbackUploadedObjects,
-  writeLockedCanvas,
-  writePublicCanvas,
 } from "@/lib/server/share-storage";
 import { takeRateLimit } from "@/lib/rate-limit";
 import {
@@ -378,17 +376,6 @@ async function buildSharedItems(
   return items;
 }
 
-/** Walk a Canvas's images, indexed by item id — used by the replace flow to skip re-uploading unchanged images. */
-function indexCanvasImages(canvas: Canvas): Map<string, StoredImageItem> {
-  const map = new Map<string, StoredImageItem>();
-  for (const page of canvas.pages) {
-    for (const item of page.items) {
-      if (item.type === "image") map.set(item.id, item);
-    }
-  }
-  return map;
-}
-
 async function uploadPreview(
   canvasId: string,
   raw: FormDataEntryValue | null,
@@ -501,7 +488,7 @@ export const Route = createFileRoute("/api/share")({
               if (!priorParsed.deleteTokenHash || priorParsed.deleteTokenHash !== hashToken(replaceToken)) {
                 throw new ShareError("Invalid replace token", 403);
               }
-              priorImageKeys = priorParsed.images.map((img) => img.key);
+              priorImageKeys = getLockedReplaceState(priorParsed).priorImageKeys;
             } else if (existing) {
               throw new ShareError("Share id already exists", 409);
             }
@@ -540,13 +527,11 @@ export const Route = createFileRoute("/api/share")({
               pinVerifier: await createPinVerifier(pin),
               deleteTokenHash: hashToken(deleteToken),
             };
-            await writeLockedCanvas(lockedKey, JSON.stringify(canvas));
-            if (isReplace) {
-              await cleanupReplacedObjects(
-                priorImageKeys,
-                images.map((image) => image.key)
-              );
-            }
+            await commitLockedCanvas({
+              lockedKey,
+              canvas,
+              ...(isReplace ? { replace: { priorImageKeys } } : {}),
+            });
             return Response.json({ id: payload.id, deleteToken } satisfies ShareCreateResponse);
           }
 
@@ -573,11 +558,10 @@ export const Route = createFileRoute("/api/share")({
               throw new ShareError("Invalid replace token", 403);
             }
             id = replaceId;
-            reuseImages = indexCanvasImages(priorCanvas);
-            priorImageKeys = Array.from(reuseImages.values())
-              .map((img) => img.objectKey)
-              .filter((key): key is string => !!key);
-            priorPreviewUrl = priorCanvas.previewUrl;
+            const replaceState = getPublicReplaceState(priorCanvas);
+            reuseImages = replaceState.reuseImagesById;
+            priorImageKeys = replaceState.priorImageKeys;
+            priorPreviewUrl = replaceState.priorPreviewUrl;
           } else {
             id = createShareId();
           }
@@ -604,17 +588,12 @@ export const Route = createFileRoute("/api/share")({
             ...(previewUrl ? { previewUrl } : {}),
           };
 
-          await writePublicCanvas(id, JSON.stringify(canvas), MANIFEST_CACHE_CONTROL);
-
-          if (isReplace) {
-            const newKeys = new Set<string>();
-            for (const page of pages) {
-              for (const item of page.items) {
-                if (item.type === "image" && item.objectKey) newKeys.add(item.objectKey);
-              }
-            }
-            await cleanupReplacedObjects(priorImageKeys, newKeys);
-          }
+          await commitPublicCanvas({
+            id,
+            canvas,
+            cacheControl: MANIFEST_CACHE_CONTROL,
+            ...(isReplace ? { replace: { priorImageKeys } } : {}),
+          });
 
           return Response.json({ id, deleteToken } satisfies ShareCreateResponse);
         } catch (error) {
@@ -711,13 +690,7 @@ export const Route = createFileRoute("/api/share")({
             return Response.json({ error: "Invalid delete token" }, { status: 403 });
           }
 
-          const keys = "images" in canvas ? collectLockedCanvasImageKeys(canvas) : await collectPublicCanvasImageKeys(canvas);
-
-          await deleteObjectsStrict(keys);
-          await deleteObjectsStrict([canvasKey]);
-          if (!("images" in canvas)) {
-            await deletePreviewBestEffort(id);
-          }
+          await deleteStoredCanvas({ id, canvasKey, canvas });
 
           return Response.json({ ok: true });
         } catch (error) {

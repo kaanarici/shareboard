@@ -16,6 +16,20 @@ import {
   type GridLayouts,
 } from "@/lib/types";
 
+interface PreviewUrlAdapter {
+  create(file: File): string;
+  revoke(url: string): void;
+}
+
+const browserPreviewUrlAdapter: PreviewUrlAdapter = {
+  create(file) {
+    return URL.createObjectURL(file);
+  },
+  revoke(url) {
+    URL.revokeObjectURL(url);
+  },
+};
+
 export function emptyBoardPage(): BoardPage {
   return { id: nanoid(8), items: [], layouts: { lg: [], sm: [] } };
 }
@@ -56,19 +70,16 @@ export function editorPagesFromCanvas(canvas: SharedCanvasData): BoardPage[] {
   });
 }
 
-export function revokeDraftImagePreviews(pages: readonly BoardPage[]) {
-  for (const page of pages) {
-    for (const item of page.items) {
-      if (isDraftImageItem(item)) URL.revokeObjectURL(item.previewUrl);
-    }
+function draftPreviewUrlsOnPage(page: BoardPage): string[] {
+  const urls: string[] = [];
+  for (const item of page.items) {
+    if (isDraftImageItem(item)) urls.push(item.previewUrl);
   }
+  return urls;
 }
 
-export function removeItemsFromPage(page: BoardPage, ids: ReadonlySet<string>): BoardPage {
+function removeItemsFromPageState(page: BoardPage, ids: ReadonlySet<string>): BoardPage {
   if (ids.size === 0) return page;
-  for (const item of page.items) {
-    if (ids.has(item.id) && isDraftImageItem(item)) URL.revokeObjectURL(item.previewUrl);
-  }
   return {
     ...page,
     items: page.items.filter((item) => !ids.has(item.id)),
@@ -79,17 +90,45 @@ export function removeItemsFromPage(page: BoardPage, ids: ReadonlySet<string>): 
   };
 }
 
+function previewUrlsForRemovedItems(page: BoardPage, ids: ReadonlySet<string>): string[] {
+  if (ids.size === 0) return [];
+  const urls: string[] = [];
+  for (const item of page.items) {
+    if (ids.has(item.id) && isDraftImageItem(item)) urls.push(item.previewUrl);
+  }
+  return urls;
+}
+
+export function revokeDraftImagePreviews(
+  pages: readonly BoardPage[],
+  adapter: PreviewUrlAdapter = browserPreviewUrlAdapter,
+) {
+  for (const page of pages) {
+    for (const url of draftPreviewUrlsOnPage(page)) adapter.revoke(url);
+  }
+}
+
+export function removeItemsFromPage(
+  page: BoardPage,
+  ids: ReadonlySet<string>,
+  adapter: PreviewUrlAdapter = browserPreviewUrlAdapter,
+): BoardPage {
+  for (const url of previewUrlsForRemovedItems(page, ids)) adapter.revoke(url);
+  return removeItemsFromPageState(page, ids);
+}
+
 export function duplicateItemOnPage(
   page: BoardPage,
   id: string,
   maxRows: number,
+  adapter: PreviewUrlAdapter = browserPreviewUrlAdapter,
 ): { page: BoardPage; newId: string } | null {
   if (id === BOARD_SUMMARY_ITEM_ID) return null;
   const source = page.items.find((item) => item.id === id);
   if (!source || source.type === "board_summary") return null;
   const newId = nanoid(10);
   const copy = isDraftImageItem(source)
-    ? { ...source, id: newId, previewUrl: URL.createObjectURL(source.file) }
+    ? { ...source, id: newId, previewUrl: adapter.create(source.file) }
     : { ...source, id: newId };
   const items = [...page.items, copy];
   return {
@@ -132,3 +171,9 @@ export function addItemWithSpillToPages({
   };
   return { pages: next, landedIndex };
 }
+
+export const __boardLifecyclePolicyForTests = {
+  draftPreviewUrlsOnPage,
+  previewUrlsForRemovedItems,
+  removeItemsFromPageState,
+};

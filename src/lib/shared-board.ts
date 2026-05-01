@@ -18,9 +18,23 @@ export type SharedBoardPage = { id: string; items: CanvasItem[]; layouts: GridLa
 export const SHARED_BOARD_LOADING_LABEL = "Loading board...";
 export const SHARED_BOARD_NOT_FOUND_LABEL = "Board not found.";
 
+export function storedBoardObjectKey(id: string) {
+  return `canvases/${id}.json`;
+}
+
+export function storedBoardFetchUrl(id: string) {
+  return `/api/share?key=${encodeURIComponent(storedBoardObjectKey(id))}`;
+}
+
 export function resolveStoredSharedBoard(value: unknown): CanvasFetchResponse | null {
   const canvas = isLockedCanvasStub(value) ? value : sanitizePublicCanvasManifest(value);
   return canvas ?? null;
+}
+
+export async function readStoredSharedBoardResponse(res: Response): Promise<CanvasFetchResponse | null> {
+  if (!res.ok) throw new Error("Board not found");
+  const body = (await res.json().catch(() => null)) as unknown;
+  return resolveStoredSharedBoard(body);
 }
 
 export function hydrateSharedBoardPages(canvas: Canvas): SharedBoardPage[] {

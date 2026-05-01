@@ -1,5 +1,6 @@
 import { sanitizePublicCanvasManifest } from "@/lib/canvas-sanitize";
 import { decryptLockedCanvas } from "@/lib/encrypted-share";
+import { storedBoardFetchUrl } from "@/lib/shared-board";
 import { decodeTinyShare, readStoredShareId, readTinyPayloadFromUrl } from "@/lib/tiny-share";
 import { isEncryptedCanvas, type Canvas } from "@/lib/types";
 
@@ -39,7 +40,7 @@ export async function importFromUrl(raw: string): Promise<ImportResult> {
 export async function fetchStoredCanvas(id: string): Promise<ImportResult> {
   let res: Response;
   try {
-    res = await fetch(`/api/share?key=${encodeURIComponent(`canvases/${id}.json`)}`);
+    res = await fetch(storedBoardFetchUrl(id));
   } catch {
     return { ok: false, error: "fetch-failed" };
   }

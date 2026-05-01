@@ -8,7 +8,9 @@ import { LockedCanvas } from "@/components/locked-canvas";
 import {
   SHARED_BOARD_LOADING_LABEL,
   SHARED_BOARD_NOT_FOUND_LABEL,
-  resolveStoredSharedBoard,
+  readStoredSharedBoardResponse,
+  storedBoardFetchUrl,
+  storedBoardObjectKey,
 } from "@/lib/shared-board";
 import { useSharedBoardLoad } from "@/lib/use-shared-board-load";
 
@@ -29,7 +31,7 @@ const getSharedHead = createServerFn({ method: "GET" })
   })
   .handler(async ({ data }): Promise<SharedHeadData> => {
     const { getObjectText } = await import("@/lib/r2");
-    const raw = await getObjectText(`canvases/${data.id}.json`);
+    const raw = await getObjectText(storedBoardObjectKey(data.id));
     if (!raw) return null;
     let parsed: unknown;
     try {
@@ -96,10 +98,7 @@ function SharedPage() {
   const { id } = Route.useParams();
   const search = Route.useSearch();
   const loadBoard = useCallback(async (signal: AbortSignal): Promise<CanvasFetchResponse | null> => {
-    const res = await fetch(`/api/share?key=${encodeURIComponent(`canvases/${id}.json`)}`, { signal });
-    if (!res.ok) throw new Error("Board not found");
-    const body = (await res.json().catch(() => null)) as unknown;
-    return resolveStoredSharedBoard(body);
+    return readStoredSharedBoardResponse(await fetch(storedBoardFetchUrl(id), { signal }));
   }, [id]);
 
   const state = useSharedBoardLoad<CanvasFetchResponse>({
