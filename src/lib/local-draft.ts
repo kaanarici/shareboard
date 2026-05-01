@@ -1,4 +1,4 @@
-import type { BoardOrigin } from "@/components/use-share-flows";
+import type { BoardOrigin } from "@/lib/board-origin";
 import {
   isDraftImageItem,
   type BoardPage,

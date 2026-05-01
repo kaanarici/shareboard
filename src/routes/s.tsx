@@ -1,15 +1,14 @@
-import { useState } from "react";
+import { useCallback } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { SharedCanvas } from "@/components/shared-canvas";
 import { decodeTinyShare, TINY_SHARE_PARAM } from "@/lib/tiny-share";
-import { useMountEffect } from "@/lib/use-mount-effect";
 import { readPageIndexFromUrl } from "@/lib/pagination";
 import type { Canvas } from "@/lib/types";
-
-type LoadState =
-  | { status: "loading" }
-  | { status: "ready"; canvas: Canvas }
-  | { status: "error" };
+import {
+  SHARED_BOARD_LOADING_LABEL,
+  SHARED_BOARD_NOT_FOUND_LABEL,
+} from "@/lib/shared-board";
+import { useSharedBoardLoad } from "@/lib/use-shared-board-load";
 
 function readTinyPayload() {
   if (typeof window === "undefined") return null;
@@ -27,31 +26,21 @@ export const Route = createFileRoute("/s")({
 });
 
 function TinySharedPage() {
-  const [state, setState] = useState<LoadState>({ status: "loading" });
+  const loadTinyBoard = useCallback(async (): Promise<Canvas | null> => {
+    const payload = readTinyPayload();
+    if (!payload) return null;
+    return decodeTinyShare(payload);
+  }, []);
 
-  useMountEffect(() => {
-    let cancelled = false;
+  const subscribeToHashChange = useCallback((reload: () => void) => {
+    window.addEventListener("hashchange", reload);
+    return () => window.removeEventListener("hashchange", reload);
+  }, []);
 
-    const load = async () => {
-      const payload = readTinyPayload();
-      if (!payload) {
-        setState({ status: "error" });
-        return;
-      }
-      try {
-        const canvas = await decodeTinyShare(payload);
-        if (!cancelled) setState(canvas ? { status: "ready", canvas } : { status: "error" });
-      } catch {
-        if (!cancelled) setState({ status: "error" });
-      }
-    };
-
-    void load();
-    window.addEventListener("hashchange", load);
-    return () => {
-      cancelled = true;
-      window.removeEventListener("hashchange", load);
-    };
+  const state = useSharedBoardLoad<Canvas>({
+    showLoadingOnReload: false,
+    load: loadTinyBoard,
+    subscribe: subscribeToHashChange,
   });
 
   if (state.status === "ready") {
@@ -63,11 +52,15 @@ function TinySharedPage() {
     );
   }
   if (state.status === "loading") {
-    return <div className="flex h-dvh items-center justify-center text-sm text-muted-foreground">Loading board...</div>;
+    return (
+      <div className="flex h-dvh items-center justify-center text-sm text-muted-foreground">
+        {SHARED_BOARD_LOADING_LABEL}
+      </div>
+    );
   }
   return (
     <div className="flex h-dvh items-center justify-center text-sm text-muted-foreground">
-      Board not found.
+      {SHARED_BOARD_NOT_FOUND_LABEL}
     </div>
   );
 }

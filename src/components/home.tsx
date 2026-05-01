@@ -21,6 +21,15 @@ import {
 import { Button } from "@/components/ui/button";
 import { AnimatePresence, motion } from "motion/react";
 import { Check, Copy, Download, Loader2, Save, Share2 } from "lucide-react";
+import {
+  addItemWithSpillToPages,
+  duplicateItemOnPage,
+  editorPagesFromCanvas,
+  emptyBoardPage,
+  packPageLayouts,
+  removeItemsFromPage,
+  revokeDraftImagePreviews,
+} from "@/lib/board-lifecycle";
 import { getApiKey, isSetup, useSyncedSetting } from "@/lib/store";
 import {
   clearLocalDraft,
@@ -29,15 +38,7 @@ import {
   saveLocalDraft,
 } from "@/lib/local-draft";
 import { detectPlatform, isValidUrl } from "@/lib/platforms";
-import { mergeLayout } from "@/components/ui/auto-canvas";
-import {
-  LG_COLS,
-  ROW_HEIGHT,
-  MARGIN,
-  buildSpecList,
-  estimateContainerWidth,
-  estimateMaxRowsFromViewport,
-} from "@/lib/tile-specs";
+import { estimateMaxRowsFromViewport } from "@/lib/tile-specs";
 import type {
   BoardPage,
   Canvas as SharedCanvasData,
@@ -50,41 +51,10 @@ import { BOARD_SUMMARY_ITEM_ID, isDraftImageItem } from "@/lib/types";
 import { IMAGE_POLICY, formatBytes, optimizeImageForShare } from "@/lib/image-policy";
 import { copyText } from "@/lib/clipboard";
 import { readErrorMessage } from "@/lib/fetch-helpers";
-import { useShareFlows, type BoardOrigin } from "@/components/use-share-flows";
+import type { BoardOrigin } from "@/lib/board-origin";
+import { useShareFlows } from "@/components/use-share-flows";
 import { importFromUrl } from "@/lib/board-import";
-import { sanitizeGeneration, sanitizePublicCanvasManifest } from "@/lib/canvas-sanitize";
-import { decodeTinyShare, readStoredShareId, readTinyPayloadFromUrl } from "@/lib/tiny-share";
-
-function emptyPage(): BoardPage {
-  return { id: nanoid(8), items: [], layouts: { lg: [], sm: [] } };
-}
-
-/**
- * Seed persisted layouts for a page. Known-id positions are preserved so prior
- * user arrangement survives; new ids get packed via skyline masonry.
- *
- * This is pre-measurement (uses viewport width estimate). The mounted
- * <AutoCanvas> re-merges with its real container width on render, so the
- * seeded positions are only "scratch" until the grid measures itself — but
- * they're still useful for (a) share persistence and (b) immediate render.
- */
-function packPageLayouts(items: CanvasItem[], prev: GridLayouts, maxRows: number): GridLayouts {
-  const specs = buildSpecList(items);
-  const lg = mergeLayout(prev.lg, specs, {
-    columns: LG_COLS,
-    containerWidth: estimateContainerWidth(),
-    rowHeight: ROW_HEIGHT,
-    gap: MARGIN,
-    maxRows,
-  });
-  const sm = mergeLayout(prev.sm, specs, {
-    columns: 1,
-    containerWidth: estimateContainerWidth(),
-    rowHeight: ROW_HEIGHT,
-    gap: MARGIN,
-  });
-  return { lg, sm };
-}
+import { sanitizeGeneration } from "@/lib/canvas-sanitize";
 
 function findSvgSource(html: string | null, text: string | null) {
   return html?.match(/<svg[\s\S]*<\/svg>/i)?.[0] ?? (text?.startsWith("<svg") ? text : null);
@@ -95,24 +65,6 @@ function createSvgFile(svgSource: string) {
     ? svgSource
     : svgSource.replace("<svg", '<svg xmlns="http://www.w3.org/2000/svg"');
   return new File([withXmlns], `shareboard-${Date.now()}.svg`, { type: "image/svg+xml" });
-}
-
-function pagesFromHistoryCanvas(canvas: SharedCanvasData): BoardPage[] {
-  if (canvas.pages.length === 0) return [emptyPage()];
-  return canvas.pages.map((page, idx) => {
-    const baseItems = page.items.filter((item) => item.type !== "board_summary");
-    // Sharing strips the synthetic summary card but preserves `generation`,
-    // so re-add it on page 0 when importing a board with a summary.
-    const items: CanvasItem[] =
-      idx === 0 && canvas.generation
-        ? [...baseItems, { id: BOARD_SUMMARY_ITEM_ID, type: "board_summary" }]
-        : baseItems;
-    return {
-      id: page.id || nanoid(8),
-      items,
-      layouts: page.layouts ?? { lg: [], sm: [] },
-    };
-  });
 }
 
 function findSharedUrl(types: readonly string[], get: (type: string) => string) {
@@ -139,7 +91,7 @@ export function Home() {
   const search = useSearch({ from: "/" });
   const urlPage = search.page ?? 1;
 
-  const [pages, setPages] = useState<BoardPage[]>(() => [emptyPage()]);
+  const [pages, setPages] = useState<BoardPage[]>(() => [emptyBoardPage()]);
   const [generation, setGeneration] = useState<GenerateResponse | null>(null);
   const [boardOrigin, setBoardOrigin] = useState<BoardOrigin>({ kind: "draft" });
   const [needsSetup, setNeedsSetup] = useState(false);
@@ -170,7 +122,7 @@ export function Home() {
     (canvas: SharedCanvasData, origin: BoardOrigin = { kind: "draft" }) => {
       lockedDisposeRef.current?.();
       lockedDisposeRef.current = null;
-      setPages(pagesFromHistoryCanvas(canvas));
+      setPages(editorPagesFromCanvas(canvas));
       setGeneration(canvas.generation ?? null);
       setBoardOrigin(origin);
       setSelectedIds([]);
@@ -201,7 +153,7 @@ export function Home() {
     };
     lockedDisposeRef.current?.();
     lockedDisposeRef.current = null;
-    setPages([emptyPage()]);
+    setPages([emptyBoardPage()]);
     setGeneration(null);
     setBoardOrigin({ kind: "draft" });
     setSelectedIds([]);
@@ -376,11 +328,7 @@ export function Home() {
 
     return () => {
       cancelled = true;
-      for (const page of pagesRef.current) {
-        for (const item of page.items) {
-          if (isDraftImageItem(item)) URL.revokeObjectURL(item.previewUrl);
-        }
-      }
+      revokeDraftImagePreviews(pagesRef.current);
     };
   });
 
@@ -426,39 +374,9 @@ export function Home() {
       // React schedules the updater synchronously for this event handler.
       let landedIndex = activePage;
       setPages((prev) => {
-        const next = [...prev];
-        const active = next[activePage] ?? emptyPage();
-        const tentativeItems = [...active.items, item];
-        const tentative = packPageLayouts(tentativeItems, active.layouts, maxRows);
-        // Check the whole layout, not just the newly-added tile: the packer may
-        // re-pack existing tiles on overflow, and aspect-locked tiles keep their
-        // natural height at render regardless of what we store — an image, tweet,
-        // or YouTube pasted onto a full page would otherwise silently overflow
-        // the canvas instead of spilling onto a new page.
-        const tentativeBottom = tentative.lg.reduce(
-          (m, l) => Math.max(m, l.y + l.h),
-          0,
-        );
-        const fits = tentativeBottom <= maxRows;
-        const activeIsEmpty = active.items.length === 0;
-
-        if (fits || activeIsEmpty) {
-          next[activePage] = { ...active, items: tentativeItems, layouts: tentative };
-          landedIndex = activePage;
-          return next;
-        }
-
-        const nextIndex = activePage + 1;
-        if (nextIndex >= next.length) next.push(emptyPage());
-        const target = next[nextIndex];
-        const items = [...target.items, item];
-        next[nextIndex] = {
-          ...target,
-          items,
-          layouts: packPageLayouts(items, target.layouts, maxRows),
-        };
-        landedIndex = nextIndex;
-        return next;
+        const result = addItemWithSpillToPages({ pages: prev, activePage, item, maxRows });
+        landedIndex = result.landedIndex;
+        return result.pages;
       });
       if (landedIndex !== activePage) {
         queueMicrotask(() => navigate({ search: { page: landedIndex + 1 }, replace: false }));
@@ -560,19 +478,7 @@ export function Home() {
       if (ids.length === 0) return;
       const idSet = new Set(ids);
       patchPage(pageIndex, (page) => {
-        for (const item of page.items) {
-          if (idSet.has(item.id) && isDraftImageItem(item)) {
-            URL.revokeObjectURL(item.previewUrl);
-          }
-        }
-        return {
-          ...page,
-          items: page.items.filter((item) => !idSet.has(item.id)),
-          layouts: {
-            lg: page.layouts.lg.filter((l) => !idSet.has(l.i)),
-            sm: page.layouts.sm.filter((l) => !idSet.has(l.i)),
-          },
-        };
+        return removeItemsFromPage(page, idSet);
       });
       if (idSet.has(BOARD_SUMMARY_ITEM_ID)) setGeneration(null);
       setGeneration((g) =>
@@ -596,16 +502,10 @@ export function Home() {
     (pageIndex: number, id: string) => {
       if (id === BOARD_SUMMARY_ITEM_ID) return;
       patchPage(pageIndex, (page) => {
-        const source = page.items.find((i) => i.id === id);
-        if (!source || source.type === "board_summary") return page;
-        const newId = nanoid(10);
-        const copy = isDraftImageItem(source)
-          ? { ...source, id: newId, previewUrl: URL.createObjectURL(source.file) }
-          : { ...source, id: newId };
-        const nextItems = [...page.items, copy];
-        const nextLayouts = packPageLayouts(nextItems, page.layouts, maxRows);
-        setSelectedIds([newId]);
-        return { ...page, items: nextItems, layouts: nextLayouts };
+        const result = duplicateItemOnPage(page, id, maxRows);
+        if (!result) return page;
+        setSelectedIds([result.newId]);
+        return result.page;
       });
     },
     [patchPage, maxRows]
@@ -623,7 +523,7 @@ export function Home() {
 
   const addPage = useCallback(() => {
     setPages((prev) => {
-      const next = [...prev, emptyPage()];
+      const next = [...prev, emptyBoardPage()];
       // Defer navigation until after state commits so router sees the new length.
       queueMicrotask(() => navigate({ search: { page: next.length }, replace: false }));
       return next;

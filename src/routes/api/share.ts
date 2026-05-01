@@ -2,14 +2,23 @@ import { randomBytes, createHash, pbkdf2, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { createFileRoute } from "@tanstack/react-router";
 import {
-  deleteObject,
-  getObjectKeyFromPublicUrlAsync,
   getObjectResponse,
-  getObjectText,
   isSafeObjectKey,
   putBuffer,
-  putObject,
 } from "@/lib/r2";
+import {
+  cleanupReplacedObjects,
+  collectLockedCanvasImageKeys,
+  collectPublicCanvasImageKeys,
+  deleteObjectsStrict,
+  deletePreviewBestEffort,
+  readLockedCanvasRaw,
+  readPublicCanvasRaw,
+  readShareRawForDelete,
+  rollbackUploadedObjects,
+  writeLockedCanvas,
+  writePublicCanvas,
+} from "@/lib/server/share-storage";
 import { takeRateLimit } from "@/lib/rate-limit";
 import {
   SANITIZE_LIMITS,
@@ -443,7 +452,7 @@ export const Route = createFileRoute("/api/share")({
               );
             }
 
-            const raw = await getObjectText(await lockedCanvasKey(id));
+            const { raw } = await readLockedCanvasRaw(id, lockedCanvasKey);
             if (!raw) return Response.json({ error: "Board not found" }, { status: 404 });
             const canvas = parseStoredJson(raw);
             if (!isEncryptedCanvas(canvas)) {
@@ -481,8 +490,7 @@ export const Route = createFileRoute("/api/share")({
             const payload = parseEncryptedPayload(encryptedRaw);
             const pin = cleanPin(form.get("pin"));
             if (pin.length !== 6) badRequest("Invalid PIN");
-            const lockedKey = await lockedCanvasKey(payload.id);
-            const existing = await getObjectText(lockedKey);
+            const { key: lockedKey, raw: existing } = await readLockedCanvasRaw(payload.id, lockedCanvasKey);
 
             let priorImageKeys: string[] = [];
             if (isReplace) {
@@ -532,13 +540,11 @@ export const Route = createFileRoute("/api/share")({
               pinVerifier: await createPinVerifier(pin),
               deleteTokenHash: hashToken(deleteToken),
             };
-            await putObject(lockedKey, JSON.stringify(canvas), "no-store");
+            await writeLockedCanvas(lockedKey, JSON.stringify(canvas));
             if (isReplace) {
-              const newKeys = new Set(images.map((img) => img.key));
-              await Promise.all(
-                priorImageKeys
-                  .filter((key) => !newKeys.has(key))
-                  .map((key) => deleteObject(key).catch(() => undefined))
+              await cleanupReplacedObjects(
+                priorImageKeys,
+                images.map((image) => image.key)
               );
             }
             return Response.json({ id: payload.id, deleteToken } satisfies ShareCreateResponse);
@@ -558,8 +564,7 @@ export const Route = createFileRoute("/api/share")({
           let priorPreviewUrl: string | undefined;
 
           if (isReplace) {
-            const canvasKey = `canvases/${replaceId}.json`;
-            const priorRaw = await getObjectText(canvasKey);
+            const priorRaw = await readPublicCanvasRaw(replaceId);
             if (!priorRaw) throw new ShareError("Share not found", 404);
             const priorParsed = parseStoredJson(priorRaw);
             const priorCanvas = sanitizePublicCanvasManifest(priorParsed);
@@ -599,7 +604,7 @@ export const Route = createFileRoute("/api/share")({
             ...(previewUrl ? { previewUrl } : {}),
           };
 
-          await putObject(`canvases/${id}.json`, JSON.stringify(canvas), MANIFEST_CACHE_CONTROL);
+          await writePublicCanvas(id, JSON.stringify(canvas), MANIFEST_CACHE_CONTROL);
 
           if (isReplace) {
             const newKeys = new Set<string>();
@@ -608,16 +613,12 @@ export const Route = createFileRoute("/api/share")({
                 if (item.type === "image" && item.objectKey) newKeys.add(item.objectKey);
               }
             }
-            await Promise.all(
-              priorImageKeys
-                .filter((key) => !newKeys.has(key))
-                .map((key) => deleteObject(key).catch(() => undefined))
-            );
+            await cleanupReplacedObjects(priorImageKeys, newKeys);
           }
 
           return Response.json({ id, deleteToken } satisfies ShareCreateResponse);
         } catch (error) {
-          await Promise.all(uploadedKeys.map((key) => deleteObject(key).catch(() => undefined)));
+          await rollbackUploadedObjects(uploadedKeys);
           const message = error instanceof Error ? error.message : "Failed to share board";
           let status = 500;
           if (error instanceof ShareError) {
@@ -634,7 +635,7 @@ export const Route = createFileRoute("/api/share")({
         const key = trimText(url.searchParams.get("key"), 4096);
         const canvasId = key.match(/^canvases\/([A-Za-z0-9_-]+)\.json$/)?.[1];
         if (canvasId) {
-          const publicRaw = await getObjectText(key);
+          const publicRaw = await readPublicCanvasRaw(canvasId);
           if (publicRaw) {
             const canvas = parseStoredJson(publicRaw);
             if (isEncryptedCanvas(canvas)) {
@@ -649,7 +650,7 @@ export const Route = createFileRoute("/api/share")({
               headers: { "Content-Type": "application/json", "Cache-Control": MANIFEST_CACHE_CONTROL },
             });
           }
-          const lockedRaw = await getObjectText(await lockedCanvasKey(canvasId));
+          const { raw: lockedRaw } = await readLockedCanvasRaw(canvasId, lockedCanvasKey);
           if (!lockedRaw) return Response.json({ error: "Object not found" }, { status: 404 });
           return Response.json(
             { id: canvasId, encrypted: true, locked: true },
@@ -696,9 +697,7 @@ export const Route = createFileRoute("/api/share")({
         }
 
         try {
-          const raw = await getObjectText(`canvases/${id}.json`);
-          const canvasKey = raw ? `canvases/${id}.json` : await lockedCanvasKey(id);
-          const storedRaw = raw ?? (await getObjectText(canvasKey));
+          const { key: canvasKey, raw: storedRaw } = await readShareRawForDelete(id, lockedCanvasKey);
           if (!storedRaw) {
             return Response.json({ error: "Board not found" }, { status: 404 });
           }
@@ -712,22 +711,12 @@ export const Route = createFileRoute("/api/share")({
             return Response.json({ error: "Invalid delete token" }, { status: 403 });
           }
 
-          const keys =
-            "images" in canvas
-              ? canvas.images.map((image) => image.key)
-              : (
-                  await Promise.all(
-                    canvas.pages
-                      .flatMap((page) => page.items)
-                      .filter((item): item is Extract<SharedCanvasItem, { type: "image" }> => item.type === "image")
-                      .map((item) => item.objectKey ?? getObjectKeyFromPublicUrlAsync(item.url))
-                  )
-                ).filter((key): key is string => !!key);
+          const keys = "images" in canvas ? collectLockedCanvasImageKeys(canvas) : await collectPublicCanvasImageKeys(canvas);
 
-          await Promise.all(keys.map((key) => deleteObject(key)));
-          await deleteObject(canvasKey);
+          await deleteObjectsStrict(keys);
+          await deleteObjectsStrict([canvasKey]);
           if (!("images" in canvas)) {
-            await deleteObject(`previews/${id}.png`).catch(() => undefined);
+            await deletePreviewBestEffort(id);
           }
 
           return Response.json({ ok: true });

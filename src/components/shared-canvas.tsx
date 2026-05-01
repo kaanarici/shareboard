@@ -1,20 +1,18 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useMountEffect } from "@/lib/use-mount-effect";
-import { clampPageIndex, readPageIndexFromUrl } from "@/lib/pagination";
-import type { Canvas as CanvasType, CanvasItem, GridLayouts } from "@/lib/types";
-import { BOARD_SUMMARY_ITEM_ID } from "@/lib/types";
+import type { Canvas as CanvasType } from "@/lib/types";
 import { Canvas } from "@/components/canvas";
 import { BoardCarousel } from "@/components/board-carousel";
 import { PageNav } from "@/components/page-nav";
 import { estimateMaxRowsFromViewport } from "@/lib/tile-specs";
 import { notify } from "@/lib/toast";
+import { hydrateSharedBoardPages } from "@/lib/shared-board";
+import { useSharedPageNavigation } from "@/lib/use-shared-page-navigation";
 import { X as XIcon } from "@/components/ui/svgs/x";
 import { InstagramIcon } from "@/components/ui/svgs/instagramIcon";
 import { Linkedin } from "@/components/ui/svgs/linkedin";
 import { ArrowRight, Share2 } from "lucide-react";
-
-type Page = { id: string; items: CanvasItem[]; layouts: GridLayouts };
 
 export function SharedCanvas({
   canvas,
@@ -25,45 +23,10 @@ export function SharedCanvas({
 }) {
   const [maxRows, setMaxRows] = useState(estimateMaxRowsFromViewport);
 
-  const pages = useMemo<Page[]>(() => {
-    return canvas.pages.map((page, idx) => {
-      const baseItems = page.items as CanvasItem[];
-      const items =
-        idx === 0 && canvas.generation && !baseItems.some((i) => i.id === BOARD_SUMMARY_ITEM_ID)
-          ? [...baseItems, { id: BOARD_SUMMARY_ITEM_ID, type: "board_summary" as const }]
-          : baseItems;
-      // AutoCanvas packs missing ids on render, so an empty `layouts` is fine —
-      // the viewer sees the fresh masonry layout, and any persisted positions
-      // from the author's drags take precedence.
-      const layouts = page.layouts ?? { lg: [], sm: [] };
-      return { id: page.id, items, layouts };
-    });
-  }, [canvas.pages, canvas.generation]);
-
-  const [activePage, setActivePageIndex] = useState(() =>
-    clampPageIndex(initialPageIndex, canvas.pages.length)
-  );
-  const pageCountRef = useRef(pages.length);
-  pageCountRef.current = pages.length;
-
-  const setActivePage = (next: number) => {
-    const clamped = Math.max(0, Math.min(next, pages.length - 1));
-    setActivePageIndex(clamped);
-    if (typeof window === "undefined") return;
-    const url = new URL(window.location.href);
-    if (clamped === 0) url.searchParams.delete("page");
-    else url.searchParams.set("page", String(clamped + 1));
-    window.history.pushState(null, "", url);
-  };
-
-  useEffect(() => {
-    setActivePageIndex((page) => clampPageIndex(page, pages.length));
-  }, [pages.length]);
-
-  useMountEffect(() => {
-    const onPopState = () => setActivePageIndex(readPageIndexFromUrl(pageCountRef.current));
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
+  const pages = useMemo(() => hydrateSharedBoardPages(canvas), [canvas]);
+  const { activePage, setActivePage } = useSharedPageNavigation({
+    initialPageIndex,
+    pageCount: pages.length,
   });
 
   // Latest-handler ref: install the keydown listener once on mount, route to

@@ -1,15 +1,16 @@
-import { useEffect, useState } from "react";
+import { useCallback } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { isLockedCanvasStub, type CanvasFetchResponse } from "@/lib/types";
 import { sanitizePublicCanvasManifest } from "@/lib/canvas-sanitize";
 import { SharedCanvas } from "@/components/shared-canvas";
 import { LockedCanvas } from "@/components/locked-canvas";
-
-type LoadState =
-  | { status: "loading" }
-  | { status: "ready"; canvas: CanvasFetchResponse }
-  | { status: "error" };
+import {
+  SHARED_BOARD_LOADING_LABEL,
+  SHARED_BOARD_NOT_FOUND_LABEL,
+  resolveStoredSharedBoard,
+} from "@/lib/shared-board";
+import { useSharedBoardLoad } from "@/lib/use-shared-board-load";
 
 type SharedSearch = { page?: number };
 
@@ -94,40 +95,28 @@ export const Route = createFileRoute("/c/$id")({
 function SharedPage() {
   const { id } = Route.useParams();
   const search = Route.useSearch();
-  const [state, setState] = useState<LoadState>({ status: "loading" });
-
-  useEffect(() => {
-    const controller = new AbortController();
-
-    const load = async () => {
-      setState({ status: "loading" });
-      try {
-        const res = await fetch(
-          `/api/share?key=${encodeURIComponent(`canvases/${id}.json`)}`,
-          { signal: controller.signal }
-        );
-        if (!res.ok) throw new Error("Board not found");
-        const body = (await res.json().catch(() => null)) as unknown;
-        const canvas = isLockedCanvasStub(body) ? body : sanitizePublicCanvasManifest(body);
-        if (!canvas) throw new Error("Board not found");
-        setState({ status: "ready", canvas });
-      } catch (error) {
-        if ((error as DOMException)?.name === "AbortError") return;
-        setState({ status: "error" });
-      }
-    };
-
-    void load();
-    return () => controller.abort();
+  const loadBoard = useCallback(async (signal: AbortSignal): Promise<CanvasFetchResponse | null> => {
+    const res = await fetch(`/api/share?key=${encodeURIComponent(`canvases/${id}.json`)}`, { signal });
+    if (!res.ok) throw new Error("Board not found");
+    const body = (await res.json().catch(() => null)) as unknown;
+    return resolveStoredSharedBoard(body);
   }, [id]);
 
+  const state = useSharedBoardLoad<CanvasFetchResponse>({
+    load: loadBoard,
+  });
+
   if (state.status === "loading") {
-    return <div className="flex h-dvh items-center justify-center text-sm text-muted-foreground">Loading board...</div>;
+    return (
+      <div className="flex h-dvh items-center justify-center text-sm text-muted-foreground">
+        {SHARED_BOARD_LOADING_LABEL}
+      </div>
+    );
   }
   if (state.status === "error") {
     return (
       <div className="flex h-dvh items-center justify-center text-sm text-muted-foreground">
-        Board not found.
+        {SHARED_BOARD_NOT_FOUND_LABEL}
       </div>
     );
   }

@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from "react";
+import type { BoardOrigin } from "@/lib/board-origin";
 import { useMountEffect } from "@/lib/use-mount-effect";
 import { copyText } from "@/lib/clipboard";
 import {
@@ -20,6 +21,15 @@ import {
 } from "@/lib/store";
 import { capturePreview } from "@/lib/share-preview";
 import { fetchStoredCanvas, unlockSharedBoard } from "@/lib/board-import";
+import {
+  canvasFromTextOnlyPayload,
+  collectSharePayload,
+  countPayloadItems,
+  getBoardTitle,
+  getHistorySubtitle,
+  hasImageItems,
+  resolveTinyHistoryEntryId,
+} from "@/lib/share-prep";
 import { createTinyShareUrl } from "@/lib/tiny-share";
 import { useIsMobile } from "@/lib/use-is-mobile";
 import { notify } from "@/lib/toast";
@@ -29,105 +39,7 @@ import {
   type BoardPage,
   type Canvas as SharedCanvasData,
   type GenerateResponse,
-  type NoteItem,
-  type ShareRequestItem,
-  type ShareRequestPayload,
-  type UrlItem,
 } from "@/lib/types";
-
-/**
- * Editor hint describing where the current pages came from. Drives the share
- * button: replace-in-place when origin points at an existing remote, otherwise
- * mint a new id. Tiny replaces don't have a remote — they collapse the prior
- * history entry so the user sees one row.
- */
-export type BoardOrigin =
-  | { kind: "draft"; replaceHistoryId?: string }
-  | { kind: "stored"; id: string; deleteToken: string }
-  | { kind: "locked"; id: string; deleteToken: string };
-
-type TitleableItem =
-  | { type: "note"; text: string }
-  | { type: "url"; url: string }
-  | { type: "image"; caption?: string }
-  | { type: string };
-type TitleablePage = { items: readonly TitleableItem[] };
-
-function getBoardTitle(pages: readonly TitleablePage[]) {
-  for (const page of pages) {
-    for (const item of page.items) {
-      if (item.type === "note" && "text" in item && item.text.trim()) {
-        return item.text.trim().replace(/\s+/g, " ").slice(0, 42);
-      }
-      if (item.type === "url" && "url" in item) {
-        try {
-          return new URL(item.url).hostname.replace(/^www\./, "");
-        } catch {
-          return item.url.slice(0, 42);
-        }
-      }
-      if (item.type === "image") {
-        const caption = "caption" in item ? item.caption?.trim() : "";
-        return caption || "Image board";
-      }
-    }
-  }
-  return "Untitled board";
-}
-
-function getHistorySubtitle(kind: BoardHistoryEntry["kind"], pageCount: number, itemCount: number) {
-  const itemLabel = itemCount === 1 ? "item" : "items";
-  const pageLabel = pageCount === 1 ? "page" : "pages";
-  const prefix = kind === "tiny" ? "Stored in link" : kind === "locked" ? "Locked share" : "Public share";
-  return `${prefix} · ${itemCount} ${itemLabel} · ${pageCount} ${pageLabel}`;
-}
-
-function shareItemFromEditor(item: BoardPage["items"][number]): ShareRequestItem | null {
-  if (item.type === "board_summary") return null;
-  if (item.type === "image") {
-    return {
-      id: item.id,
-      type: "image",
-      mimeType: item.mimeType,
-      size: item.size,
-      caption: item.caption,
-    };
-  }
-  return item;
-}
-
-function collectSharePayload(
-  pages: BoardPage[],
-  generation: GenerateResponse | null,
-): ShareRequestPayload {
-  return {
-    author: getName(),
-    authorProfile: getProfile(),
-    generation,
-    pages: pages.map((page) => ({
-      id: page.id,
-      layouts: page.layouts,
-      items: page.items.map(shareItemFromEditor).filter((item): item is ShareRequestItem => !!item),
-    })),
-  };
-}
-
-function canvasFromTextOnlyPayload(payload: ShareRequestPayload, generation: GenerateResponse | null): SharedCanvasData {
-  return {
-    id: "tiny",
-    author: typeof payload.author === "string" && payload.author ? payload.author : "Anonymous",
-    authorProfile: getProfile(),
-    pages: payload.pages.map((page) => ({
-      id: page.id,
-      layouts: page.layouts,
-      items: page.items.filter(
-        (item): item is UrlItem | NoteItem => item.type === "url" || item.type === "note",
-      ),
-    })),
-    ...(generation ? { generation } : {}),
-    createdAt: new Date().toISOString(),
-  };
-}
 
 async function readShareCreateResponse(res: Response) {
   const body = (await res.json().catch(() => null)) as unknown;
@@ -192,26 +104,33 @@ export function useShareFlows({
     setShareState("sharing");
     try {
       const form = new FormData();
-      const payload = collectSharePayload(pages, generation);
+      const payload = collectSharePayload({
+        pages,
+        generation,
+        author: getName(),
+        authorProfile: getProfile(),
+      });
 
       form.set("payload", JSON.stringify(payload));
-      const itemCount = payload.pages.reduce((n, page) => n + page.items.length, 0);
+      const itemCount = countPayloadItems(payload);
       const title = getBoardTitle(payload.pages);
 
       const isReplaceStored = boardOrigin.kind === "stored";
-      const hasImages = pages.some((page) => page.items.some((item) => item.type === "image"));
+      const hasImages = hasImageItems(pages);
 
       // Tiny path: only when there are no images AND this isn't a stored-replace
       // (replace must hit the same /c/{id} URL, which requires the stored path).
       if (!hasImages && !isReplaceStored) {
-        const tinyCanvas = canvasFromTextOnlyPayload(payload, generation);
+        const tinyCanvas = canvasFromTextOnlyPayload({
+          payload,
+          generation,
+          authorProfile: getProfile(),
+          createdAt: new Date().toISOString(),
+        });
         const tinyUrl = await createTinyShareUrl(tinyCanvas, window.location.origin);
         if (tinyUrl) {
           clearLastSharedBoard();
-          const entryId =
-            boardOrigin.kind === "draft" && boardOrigin.replaceHistoryId
-              ? boardOrigin.replaceHistoryId
-              : `tiny:${Date.now()}`;
+          const entryId = resolveTinyHistoryEntryId(boardOrigin, Date.now());
           saveBoardHistory({
             id: entryId,
             kind: "tiny",
