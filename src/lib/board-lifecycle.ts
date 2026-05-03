@@ -187,16 +187,16 @@ function addImageDuplicateAtSourceSize({
   const sourceLayout = activeLayouts?.lg.find((layout) => layout.i === sourceId);
   if (!active || !sourceLayout) return null;
 
-  const { x, y } = lowestOpenSlot(activeLayouts.lg, sourceLayout.w, LG_COLS);
+  const slot = firstOpenSlot(activeLayouts.lg, sourceLayout.w, sourceLayout.h, LG_COLS, maxRows);
+  if (!slot) return null;
   const candidate = {
     ...sourceLayout,
     i: item.id,
-    x,
-    y,
+    x: slot.x,
+    y: slot.y,
     w: sourceLayout.w,
     h: sourceLayout.h,
   };
-  if (candidate.y + candidate.h > maxRows) return null;
 
   const items = [...active.items, item];
   const layouts = packPageLayouts(
@@ -212,31 +212,30 @@ function addImageDuplicateAtSourceSize({
   return { pages: next, landedIndex: activePage };
 }
 
-function lowestOpenSlot(
+function firstOpenSlot(
   layouts: GridLayouts["lg"],
   width: number,
+  height: number,
   columns: number,
-): { x: number; y: number } {
+  maxRows: number,
+): { x: number; y: number } | null {
   const w = Math.max(1, Math.min(columns, width));
-  const skyline = new Array(columns).fill(0);
-  for (const layout of layouts) {
-    for (let k = 0; k < layout.w; k++) {
-      const col = layout.x + k;
-      if (col >= 0 && col < columns) skyline[col] = Math.max(skyline[col], layout.y + layout.h);
+  const h = Math.max(1, Math.min(maxRows, height));
+  const maxY = Math.max(0, maxRows - h);
+  for (let y = 0; y <= maxY; y++) {
+    for (let x = 0; x <= columns - w; x++) {
+      const candidate = { x, y, w, h };
+      if (layouts.every((layout) => !rectsOverlap(candidate, layout))) return { x, y };
     }
   }
+  return null;
+}
 
-  let bestX = 0;
-  let bestY = Number.POSITIVE_INFINITY;
-  for (let x = 0; x <= columns - w; x++) {
-    let y = 0;
-    for (let k = 0; k < w; k++) y = Math.max(y, skyline[x + k]);
-    if (y < bestY) {
-      bestX = x;
-      bestY = y;
-    }
-  }
-  return { x: bestX, y: Number.isFinite(bestY) ? bestY : 0 };
+function rectsOverlap(
+  a: Pick<GridLayouts["lg"][number], "x" | "y" | "w" | "h">,
+  b: Pick<GridLayouts["lg"][number], "x" | "y" | "w" | "h">,
+): boolean {
+  return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 }
 
 export function addItemWithSpillToPages({

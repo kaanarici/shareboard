@@ -219,6 +219,27 @@ describe("mergeLayout", () => {
     // New tile should tuck next to old (x=12, y=0), not below (y=6).
     expect(newTile).toMatchObject({ x: 12, y: 0 });
   });
+  test("packs new ids into interior holes before spilling", () => {
+    const persisted = [
+      { i: "left", x: 0, y: 0, w: 8, h: 12 },
+      { i: "top", x: 8, y: 0, w: 8, h: 4 },
+      { i: "bottom", x: 8, y: 8, w: 8, h: 4 },
+      { i: "right", x: 16, y: 0, w: 8, h: 12 },
+    ];
+    const merged = mergeLayout(
+      persisted,
+      [
+        { id: "left", preferredSpan: 8, preferredRows: 12 },
+        { id: "top", preferredSpan: 8, preferredRows: 4 },
+        { id: "bottom", preferredSpan: 8, preferredRows: 4 },
+        { id: "right", preferredSpan: 8, preferredRows: 12 },
+        { id: "new", preferredSpan: 8, preferredRows: 4 },
+      ],
+      { ...OPTS, maxRows: 12 },
+    );
+
+    expect(merged.find((l) => l.i === "new")).toMatchObject({ x: 8, y: 4, w: 8, h: 4 });
+  });
   test("preserves persisted positions and reports overflow when a merge cannot fit", () => {
     // Simulate a canvas that's already at the row budget, then add one more tile.
     const persisted = [

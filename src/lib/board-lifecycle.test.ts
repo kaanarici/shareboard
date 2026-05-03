@@ -277,6 +277,54 @@ describe("board lifecycle", () => {
     });
   });
 
+  test("keeps same-size duplicates in interior holes before spilling", () => {
+    const file = new File(["x"], "avatar.png", { type: "image/png" });
+    const img = (id: string) => ({
+      id,
+      type: "image" as const,
+      file,
+      previewUrl: `blob:${id}`,
+    });
+    const page: BoardPage = {
+      id: "page",
+      items: ["left", "source", "below", "right"].map(img),
+      layouts: {
+        lg: [
+          { i: "left", x: 0, y: 0, w: 8, h: 12 },
+          { i: "source", x: 8, y: 0, w: 8, h: 4 },
+          { i: "below", x: 8, y: 8, w: 8, h: 4 },
+          { i: "right", x: 16, y: 0, w: 8, h: 12 },
+        ],
+        sm: [],
+      },
+    };
+
+    const result = duplicateItemWithSpillToPages({
+      pages: [page],
+      activePage: 0,
+      id: "source",
+      maxRows: 12,
+      adapter: {
+        create() {
+          return "blob:copy";
+        },
+        revoke() {
+          throw new Error("not used");
+        },
+      },
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.landedIndex).toBe(0);
+    expect(result!.pages).toHaveLength(1);
+    expect(result!.pages[0]!.layouts.lg.find((layout) => layout.i === result!.newId)).toMatchObject({
+      x: 8,
+      y: 4,
+      w: 8,
+      h: 4,
+    });
+  });
+
   test("normalizes stale source layouts before placing same-size image duplicates", () => {
     const file = new File(["x"], "avatar.png", { type: "image/png" });
     const page: BoardPage = {

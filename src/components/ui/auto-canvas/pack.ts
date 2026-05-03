@@ -267,7 +267,7 @@ export function mergeLayout(
   // see tentativeBottom > maxRows and spill to the next page.
   for (const spec of specs) {
     if (keptIds.has(spec.id)) continue;
-    const placement = placeFresh(spec, skyline, options);
+    const placement = placeFresh(spec, kept, skyline, options);
 
     for (let k = 0; k < placement.w; k++) {
       skyline[placement.x + k] = placement.y + placement.h;
@@ -584,6 +584,7 @@ function lowestPlacement(
  */
 function placeFresh(
   spec: { id: string } & TileSpec,
+  layouts: LayoutItem[],
   skyline: number[],
   options: PackOptions,
 ): { x: number; y: number; w: number; h: number } {
@@ -594,8 +595,8 @@ function placeFresh(
     const minSpan = 1;
     for (let w = preferredSpan; w >= minSpan; w--) {
       const h = chooseRows(spec, w, options);
-      const { x, y } = lowestPlacement(skyline, w, columns);
-      if (y + h <= maxRows) return { x, y, w, h };
+      const open = firstOpenPosition({ w, h }, layouts, options);
+      if (open) return { ...open, w, h };
     }
     const w = minSpan;
     const h = chooseRows(spec, w, options);
@@ -605,8 +606,25 @@ function placeFresh(
 
   const w = preferredSpan;
   const h = chooseRows(spec, w, options);
+  const open = firstOpenPosition({ w, h }, layouts, options);
+  if (open) return { ...open, w, h };
   const { x, y } = lowestPlacement(skyline, w, columns);
   return { x, y, w, h };
+}
+
+function firstOpenPosition(
+  size: Pick<LayoutItem, "w" | "h">,
+  layouts: LayoutItem[],
+  options: ResolveDisplacementOptions,
+): { x: number; y: number } | null {
+  const item = { i: "__fresh__", x: 0, y: 0, w: Math.max(1, size.w), h: Math.max(1, size.h) };
+  const maxY = maxAllowedY(item, options);
+  for (let y = 0; y <= maxY; y++) {
+    for (let x = 0; x <= options.columns - item.w; x++) {
+      if (positionFits(item, { x, y }, layouts, options)) return { x, y };
+    }
+  }
+  return null;
 }
 
 function clamp(n: number, lo: number, hi: number): number {
