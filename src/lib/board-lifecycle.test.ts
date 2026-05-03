@@ -277,6 +277,42 @@ describe("board lifecycle", () => {
     });
   });
 
+  test("normalizes stale source layouts before placing same-size image duplicates", () => {
+    const file = new File(["x"], "avatar.png", { type: "image/png" });
+    const page: BoardPage = {
+      id: "page",
+      items: [{ id: "source", type: "image", file, previewUrl: "blob:source", aspect: 1 }],
+      layouts: {
+        lg: [{ i: "source", x: 30, y: 999, w: 8, h: 13 }],
+        sm: [],
+      },
+    };
+
+    const result = duplicateItemWithSpillToPages({
+      pages: [page],
+      activePage: 0,
+      id: "source",
+      maxRows: 21,
+      adapter: {
+        create() {
+          return "blob:copy";
+        },
+        revoke() {
+          throw new Error("not used");
+        },
+      },
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.landedIndex).toBe(0);
+    const bottom = result!.pages[0]!.layouts.lg.reduce((max, layout) => Math.max(max, layout.y + layout.h), 0);
+    expect(bottom).toBeLessThanOrEqual(21);
+    expect(result!.pages[0]!.layouts.lg.find((layout) => layout.i === result!.newId)).toMatchObject({
+      w: 8,
+      h: 13,
+    });
+  });
+
   test("spills a new item to the next page when the active page is full", () => {
     const fullPage: BoardPage = {
       id: "full",
@@ -295,6 +331,21 @@ describe("board lifecycle", () => {
     expect(result.pages).toHaveLength(2);
     expect(result.pages[0]?.items.map((item) => item.id)).toEqual(["a"]);
     expect(result.pages[1]?.items.map((item) => item.id)).toEqual(["b"]);
+  });
+
+  test("keeps a single oversized new-page item inside the row budget", () => {
+    const result = addItemWithSpillToPages({
+      pages: [emptyBoardPage()],
+      activePage: 0,
+      item: { id: "url", type: "url", url: "https://example.com", platform: "website" },
+      maxRows: 4,
+    });
+
+    expect(result.landedIndex).toBe(0);
+    expect(result.pages).toHaveLength(1);
+    const layout = result.pages[0]?.layouts.lg[0];
+    expect(layout).toMatchObject({ i: "url", y: 0, h: 4 });
+    expect(layout!.y + layout!.h).toBeLessThanOrEqual(4);
   });
 
   test("continues past existing full pages instead of overfilling the next page", () => {

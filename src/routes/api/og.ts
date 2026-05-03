@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { takeRateLimit } from "@/lib/rate-limit";
-import { BROWSER_UA, PublicFetchError, fetchPublicUrl } from "@/lib/safe-fetch";
+import { BROWSER_UA, fetchPublicUrl } from "@/lib/safe-fetch";
 
 const MAX_HTML_BYTES = 2 * 1024 * 1024;
 const HEAD_CLOSE = "</head>";
@@ -89,6 +89,12 @@ function parseOG(html: string, pageUrl: string) {
   };
 }
 
+function emptyMetadata() {
+  return Response.json({}, {
+    headers: { "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400" },
+  });
+}
+
 export const Route = createFileRoute("/api/og")({
   server: {
     handlers: {
@@ -120,12 +126,12 @@ export const Route = createFileRoute("/api/og")({
           });
 
           if (!res.ok) {
-            return Response.json({ error: "Failed to fetch", upstream: res.status }, { status: 502 });
+            return emptyMetadata();
           }
 
           const contentType = res.headers.get("content-type") || "";
           if (!/text\/html|application\/xhtml\+xml/i.test(contentType)) {
-            return Response.json({ error: "URL is not an HTML page" }, { status: 415 });
+            return emptyMetadata();
           }
 
           const html = await readHeadHtml(res);
@@ -134,10 +140,8 @@ export const Route = createFileRoute("/api/og")({
           return Response.json(og, {
             headers: { "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800" },
           });
-        } catch (error) {
-          const message = error instanceof Error ? error.message : "Fetch failed";
-          const status = error instanceof PublicFetchError ? error.status : 502;
-          return Response.json({ error: message }, { status });
+        } catch {
+          return emptyMetadata();
         }
       },
     },

@@ -59,6 +59,25 @@ export function packPageLayouts(items: CanvasItem[], prev: GridLayouts, maxRows:
   };
 }
 
+function layoutBottom(layouts: GridLayouts["lg"]): number {
+  return layouts.reduce((max, layout) => Math.max(max, layout.y + layout.h), 0);
+}
+
+function clampSingleItemLayoutsToBudget(layouts: GridLayouts, maxRows: number): GridLayouts {
+  if (maxRows <= 0 || layouts.lg.length !== 1) return layouts;
+  const lg = layouts.lg.map((layout) => {
+    const y = Math.max(0, Math.min(layout.y, maxRows - 1));
+    const h = Math.max(1, Math.min(layout.h, maxRows - y));
+    return {
+      ...layout,
+      y,
+      h,
+      ...(layout.minH != null && { minH: Math.min(layout.minH, h) }),
+    };
+  });
+  return { ...layouts, lg };
+}
+
 export function editorPagesFromCanvas(canvas: SharedCanvasData): BoardPage[] {
   if (canvas.pages.length === 0) return [emptyBoardPage()];
   return canvas.pages.map((page, idx) => {
@@ -164,10 +183,11 @@ function addImageDuplicateAtSourceSize({
   maxRows: number;
 }): { pages: BoardPage[]; landedIndex: number } | null {
   const active = pages[activePage];
-  const sourceLayout = active?.layouts.lg.find((layout) => layout.i === sourceId);
+  const activeLayouts = active ? packPageLayouts(active.items, active.layouts, maxRows) : null;
+  const sourceLayout = activeLayouts?.lg.find((layout) => layout.i === sourceId);
   if (!active || !sourceLayout) return null;
 
-  const { x, y } = lowestOpenSlot(active.layouts.lg, sourceLayout.w, LG_COLS);
+  const { x, y } = lowestOpenSlot(activeLayouts.lg, sourceLayout.w, LG_COLS);
   const candidate = {
     ...sourceLayout,
     i: item.id,
@@ -181,10 +201,10 @@ function addImageDuplicateAtSourceSize({
   const items = [...active.items, item];
   const layouts = packPageLayouts(
     items,
-    { ...active.layouts, lg: [...active.layouts.lg, candidate] },
+    { ...activeLayouts, lg: [...activeLayouts.lg, candidate] },
     maxRows,
   );
-  const bottom = layouts.lg.reduce((max, layout) => Math.max(max, layout.y + layout.h), 0);
+  const bottom = layoutBottom(layouts.lg);
   if (bottom > maxRows) return null;
 
   const next = [...pages];
@@ -237,20 +257,31 @@ export function addItemWithSpillToPages({
     const target = next[index] ?? emptyBoardPage();
     const items = [...target.items, item];
     const layouts = packPageLayouts(items, target.layouts, maxRows);
-    const bottom = layouts.lg.reduce((max, layout) => Math.max(max, layout.y + layout.h), 0);
+    const bottom = layoutBottom(layouts.lg);
     if (bottom <= maxRows) {
       next[index] = { ...target, items, layouts };
       return { pages: next, landedIndex: index };
+    }
+    if (target.items.length === 0) {
+      const clamped = clampSingleItemLayoutsToBudget(layouts, maxRows);
+      if (layoutBottom(clamped.lg) <= maxRows) {
+        next[index] = { ...target, items, layouts: clamped };
+        return { pages: next, landedIndex: index };
+      }
     }
   }
 
   const landedIndex = next.length;
   const target = emptyBoardPage();
   const items = [...target.items, item];
+  const layouts = clampSingleItemLayoutsToBudget(
+    packPageLayouts(items, target.layouts, maxRows),
+    maxRows,
+  );
   next[landedIndex] = {
     ...target,
     items,
-    layouts: packPageLayouts(items, target.layouts, maxRows),
+    layouts,
   };
   return { pages: next, landedIndex };
 }

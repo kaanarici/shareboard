@@ -297,24 +297,27 @@ export function Home() {
   const hasItems = totalContentItems > 0;
 
   useEffect(() => {
+    if (pendingActivePageRef.current != null) return;
     setSelectedIds([]);
   }, [activePage]);
 
   useEffect(() => {
+    const pendingPage = pendingActivePageRef.current;
+    if (pendingPage != null) {
+      const clamped = Math.max(0, Math.min(pendingPage, pages.length - 1));
+      if (clamped !== activePage) {
+        navigate({ search: clamped === 0 ? {} : { page: clamped + 1 }, replace: false });
+        return;
+      }
+      pendingActivePageRef.current = null;
+    }
+
     const pendingSelected = pendingSelectedIdsRef.current;
-    if (pendingSelected) {
+    if (pendingSelected !== null) {
       pendingSelectedIdsRef.current = null;
       setSelectedIds(pendingSelected);
     }
-
-    const pendingPage = pendingActivePageRef.current;
-    if (pendingPage == null) return;
-    pendingActivePageRef.current = null;
-    const clamped = Math.max(0, Math.min(pendingPage, pages.length - 1));
-    if (clamped !== activePage) {
-      navigate({ search: clamped === 0 ? {} : { page: clamped + 1 }, replace: false });
-    }
-  }, [activePage, navigate, pages.length]);
+  }, [activePage, navigate, pages]);
 
   const currentDraftSig = useMemo(
     () => draftSignature(pages, generation, boardOrigin),
@@ -568,6 +571,8 @@ export function Home() {
       if (items.length === 0) return false;
 
       let lastLandedIndex = activePage;
+      let selectedOnLandingPage: string[] = [];
+      const idsByPage = new Map<number, string[]>();
       setPages((prev) => {
         let nextPages = prev;
         let landingPage = activePage;
@@ -581,11 +586,16 @@ export function Home() {
           nextPages = result.pages;
           landingPage = result.landedIndex;
           lastLandedIndex = result.landedIndex;
+          idsByPage.set(result.landedIndex, [...(idsByPage.get(result.landedIndex) ?? []), item.id]);
         }
+        selectedOnLandingPage = idsByPage.get(lastLandedIndex) ?? [];
+        pendingSelectedIdsRef.current = selectedOnLandingPage;
         if (lastLandedIndex !== activePage) pendingActivePageRef.current = lastLandedIndex;
         return nextPages;
       });
-      setSelectedIds(items.map((item) => item.id));
+      if (lastLandedIndex === activePage && selectedOnLandingPage.length > 0) {
+        setSelectedIds(selectedOnLandingPage);
+      }
       notify.success(
         duplicateCount > 0
           ? `${items.length} unique ${items.length === 1 ? "image" : "images"} added, ${duplicateCount} duplicate ${duplicateCount === 1 ? "entry" : "entries"} skipped`
@@ -690,10 +700,10 @@ export function Home() {
 
       let lastLandedIndex = activePage;
       let nextSelectedIds: string[] = [];
+      const idsByPage = new Map<number, string[]>();
       setPages((prev) => {
         let nextPages = prev;
         let landingPage = activePage;
-        const pastedIds: string[] = [];
         for (const item of copies) {
           const result = addItemWithSpillToPages({
             pages: nextPages,
@@ -704,14 +714,16 @@ export function Home() {
           nextPages = result.pages;
           landingPage = result.landedIndex;
           lastLandedIndex = result.landedIndex;
-          pastedIds.push(item.id);
+          idsByPage.set(result.landedIndex, [...(idsByPage.get(result.landedIndex) ?? []), item.id]);
         }
-        nextSelectedIds = pastedIds;
-        pendingSelectedIdsRef.current = pastedIds;
+        nextSelectedIds = idsByPage.get(lastLandedIndex) ?? [];
+        pendingSelectedIdsRef.current = nextSelectedIds;
         if (lastLandedIndex !== activePage) pendingActivePageRef.current = lastLandedIndex;
         return nextPages;
       });
-      if (lastLandedIndex === activePage) setSelectedIds(nextSelectedIds);
+      if (lastLandedIndex === activePage && nextSelectedIds.length > 0) {
+        setSelectedIds(nextSelectedIds);
+      }
       return true;
     },
     [activePage, maxRows],

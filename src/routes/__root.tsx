@@ -16,6 +16,7 @@ export const Route = createRootRoute({
       { name: "referrer", content: "no-referrer" },
       { title: "Shareboard" },
       { name: "description", content: "Collect, curate, and share ideas beautifully" },
+      { name: "mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-title", content: "Shareboard" },
       { name: "apple-mobile-web-app-status-bar-style", content: "default" },
