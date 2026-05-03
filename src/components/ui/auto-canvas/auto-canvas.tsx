@@ -4,7 +4,7 @@ import type { Layout, LayoutItem, ResponsiveLayouts } from "react-grid-layout";
 import { aspectRatio, gridBounds, snapToGrid } from "react-grid-layout/core";
 import "react-grid-layout/css/styles.css";
 import type { AutoLayouts, TileSpecMap } from "./types";
-import { chooseRows, chooseSpan, mergeLayout, resolveDisplacedLayout } from "./pack";
+import { chooseRows, chooseSpan, mergeLayout, normalizeLayoutItem, resolveDisplacedLayout } from "./pack";
 
 // rgl reads allowOverlap off the compactor (not props). With allowOverlap the
 // placeholder tracks the cursor every frame even when hovering other tiles —
@@ -12,28 +12,14 @@ import { chooseRows, chooseSpan, mergeLayout, resolveDisplacedLayout } from "./p
 // in handleInteractionStop.
 const freePlacementCompactor = { ...noCompactor, allowOverlap: true } as typeof noCompactor & { allowOverlap: true };
 
-// shape: { x:3, y:2, w:6, h:6 }
 function rectsOverlap(a: Pick<LayoutItem, "x" | "y" | "w" | "h">, b: Pick<LayoutItem, "x" | "y" | "w" | "h">): boolean {
   return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 }
 
-function toStoredLayout(layout: Layout): Layout {
-  return layout.map(({ i, x, y, w, h, minW, maxW, minH, maxH }) => {
-    const cleanMinW = Number(minW);
-    const cleanMaxW = Number(maxW);
-    const cleanMinH = Number(minH);
-    const cleanMaxH = Number(maxH);
-    return {
-      i,
-      x,
-      y,
-      w,
-      h,
-      ...(Number.isFinite(cleanMinW) && { minW: Math.min(cleanMinW, w) }),
-      ...(Number.isFinite(cleanMaxW) && { maxW: Math.max(cleanMaxW, w) }),
-      ...(Number.isFinite(cleanMinH) && { minH: Math.min(cleanMinH, h) }),
-      ...(Number.isFinite(cleanMaxH) && { maxH: Math.max(cleanMaxH, h) }),
-    };
+function toStoredLayout(layout: Layout, columns: number, maxRows?: number): Layout {
+  return layout.flatMap((item) => {
+    const normalized = normalizeLayoutItem(item, { columns, maxRows });
+    return normalized ? [normalized] : [];
   });
 }
 
@@ -314,9 +300,12 @@ export const AutoCanvas = forwardRef<HTMLDivElement, AutoCanvasProps>(function A
         lg: layout?.lg ?? [],
         sm: layout?.sm ?? [],
       };
-      onLayoutChange({ ...prevLayouts, [bp]: toStoredLayout(finalLayout) });
+      onLayoutChange({
+        ...prevLayouts,
+        [bp]: toStoredLayout(finalLayout, bp === "sm" ? smColumns : columns, maxRows),
+      });
     },
-    [onLayoutChange, readonly, layout, maxRows, columns, setDragPreviewLayouts],
+    [onLayoutChange, readonly, layout, maxRows, columns, smColumns, setDragPreviewLayouts],
   );
 
   const setContainerRef = useCallback(

@@ -4,6 +4,7 @@ import {
   chooseSpan,
   colSpanToPx,
   mergeLayout,
+  normalizeLayoutItem,
   packLayout,
   packSkyline,
   pxToRows,
@@ -158,6 +159,38 @@ describe("packLayout", () => {
 });
 
 describe("mergeLayout", () => {
+  test("normalizes raw layout items into clone-safe grid records", () => {
+    const normalized = normalizeLayoutItem(
+      {
+        i: "a",
+        x: -2,
+        y: 99,
+        w: 30,
+        h: 8,
+        minW: 40,
+        minH: 20,
+        maxW: 1,
+        maxH: 1,
+        constrainPosition() {
+          return { x: 0, y: 0 };
+        },
+      } as Parameters<typeof normalizeLayoutItem>[0],
+      { columns: 24, maxRows: 12 },
+    );
+
+    expect(normalized).toEqual({
+      i: "a",
+      x: 0,
+      y: 4,
+      w: 24,
+      h: 8,
+      minW: 24,
+      minH: 8,
+      maxW: 24,
+      maxH: 8,
+    });
+  });
+
   test("keeps persisted x/y/h for known ids (w may grow via justify-flex)", () => {
     const persisted = [
       { i: "a", x: 6, y: 0, w: 6, h: 5, minW: 3, minH: 3 },
@@ -327,6 +360,25 @@ describe("resolveDisplacedLayout", () => {
 
     expect(resolved?.find((item) => item.i === "a")).toMatchObject({ x: 4, y: 0 });
     expect(resolved?.find((item) => item.i === "b")).toMatchObject({ x: 12, y: 0 });
+  });
+
+  test("cascades a partial push through adjacent cards when space exists", () => {
+    const before = [
+      { i: "a", x: 0, y: 0, w: 6, h: 6 },
+      { i: "b", x: 6, y: 0, w: 6, h: 6 },
+      { i: "c", x: 12, y: 0, w: 6, h: 6 },
+    ];
+    const next = [
+      { i: "a", x: 3, y: 0, w: 6, h: 6 },
+      { i: "b", x: 6, y: 0, w: 6, h: 6 },
+      { i: "c", x: 12, y: 0, w: 6, h: 6 },
+    ];
+
+    const resolved = resolveDisplacedLayout(next, before, "a", { columns: 24, maxRows: 6 });
+
+    expect(resolved?.find((item) => item.i === "a")).toMatchObject({ x: 3, y: 0 });
+    expect(resolved?.find((item) => item.i === "b")).toMatchObject({ x: 9, y: 0 });
+    expect(resolved?.find((item) => item.i === "c")).toMatchObject({ x: 15, y: 0 });
   });
 
   test("returns null when no non-overlapping displaced layout fits", () => {

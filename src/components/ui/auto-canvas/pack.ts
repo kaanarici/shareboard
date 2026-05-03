@@ -232,7 +232,7 @@ export function mergeLayout(
   const specById = new Map(specs.map((s) => [s.id, s]));
   const persistedById = new Map<string, LayoutItem>();
   for (const item of persisted) {
-    const normalized = normalizePersistedLayoutItem(item, options);
+    const normalized = normalizeLayoutItem(item, options);
     if (normalized) persistedById.set(normalized.i, normalized);
   }
 
@@ -290,7 +290,10 @@ export function mergeLayout(
   return final;
 }
 
-function normalizePersistedLayoutItem(item: LayoutItem, options: PackOptions): LayoutItem | null {
+export function normalizeLayoutItem(
+  item: LayoutItem,
+  options: Pick<PackOptions, "columns" | "maxRows">,
+): LayoutItem | null {
   if (!item.i) return null;
   const xValue = Number(item.x);
   const yValue = Number(item.y);
@@ -308,7 +311,7 @@ function normalizePersistedLayoutItem(item: LayoutItem, options: PackOptions): L
   const minH = Number(item.minH);
   const maxH = Number(item.maxH);
   return {
-    ...item,
+    i: item.i,
     x: Math.max(0, Math.min(maxX, Math.floor(xValue))),
     y: Math.max(0, Math.min(maxY, Math.floor(yValue))),
     w,
@@ -344,21 +347,34 @@ export function resolveDisplacedLayout(
   const queue = result
     .filter((item) => item.i !== movedId && rectsOverlap(item, moved))
     .map((item) => item.i);
+  const maxSteps = Math.max(1, result.length * result.length);
+  let steps = 0;
 
-  for (const id of queue) {
+  while (queue.length > 0) {
+    if (steps++ > maxSteps) return null;
+    const id = queue.shift()!;
     const item = result.find((entry) => entry.i === id);
     if (!item || !result.some((entry) => entry.i !== id && rectsOverlap(entry, item))) continue;
 
-    const position = findDisplacedPosition({
+    const directPosition = findDirectDisplacedPosition({
       item,
       layouts: result,
       moved,
       prevMoved,
       options,
     });
+    const position = directPosition
+      ?? findCascadePushPosition(item, result, moved, prevMoved, options)
+      ?? nearestOpenPosition(item, result, options);
     if (!position) return null;
     item.x = position.x;
     item.y = position.y;
+
+    for (const collision of result) {
+      if (collision.i !== item.i && collision.i !== movedId && rectsOverlap(collision, item)) {
+        queue.push(collision.i);
+      }
+    }
   }
 
   return layoutIsValid(result, options) ? result : null;
@@ -408,7 +424,7 @@ function resolveInsertedLayout(
   return layoutIsValid(result, options) ? result : null;
 }
 
-function findDisplacedPosition({
+function findDirectDisplacedPosition({
   item,
   layouts,
   moved,
@@ -435,7 +451,38 @@ function findDisplacedPosition({
     if (positionFits(item, position, layouts, options)) return position;
   }
 
-  return nearestOpenPosition(item, layouts, options);
+  return null;
+}
+
+function findCascadePushPosition(
+  item: LayoutItem,
+  layouts: LayoutItem[],
+  moved: LayoutItem,
+  prevMoved: LayoutItem,
+  options: ResolveDisplacementOptions,
+): { x: number; y: number } | null {
+  const dx = moved.x - prevMoved.x;
+  const dy = moved.y - prevMoved.y;
+  const collisions = layouts.filter((entry) => entry.i !== item.i && rectsOverlap(entry, item));
+  if (collisions.length === 0) return null;
+
+  const candidate =
+    Math.abs(dx) >= Math.abs(dy)
+      ? {
+          x: dx >= 0
+            ? Math.max(...collisions.map((entry) => entry.x + entry.w))
+            : Math.min(...collisions.map((entry) => entry.x)) - item.w,
+          y: item.y,
+        }
+      : {
+          x: item.x,
+          y: dy >= 0
+            ? Math.max(...collisions.map((entry) => entry.y + entry.h))
+            : Math.min(...collisions.map((entry) => entry.y)) - item.h,
+        };
+
+  if (candidate.x === item.x && candidate.y === item.y) return null;
+  return fitsBounds({ ...item, ...candidate }, options) ? candidate : null;
 }
 
 function nearestOpenPosition(

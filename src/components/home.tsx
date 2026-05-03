@@ -126,12 +126,13 @@ async function fileFingerprint(file: File) {
 }
 
 function imageFilesFromTransfer(data: DataTransfer) {
-  const fromFiles = Array.from(data.files).filter((file) => file.type.startsWith("image/"));
-  if (fromFiles.length > 0) return fromFiles;
-  return Array.from(data.items)
-    .filter((item) => item.type.startsWith("image/"))
-    .map((item) => item.getAsFile())
-    .filter((file): file is File => !!file);
+  const files = Array.from(data.files).filter((file) => file.type.startsWith("image/"));
+  for (const item of Array.from(data.items)) {
+    if (!item.type.startsWith("image/")) continue;
+    const file = item.getAsFile();
+    if (file && !files.includes(file)) files.push(file);
+  }
+  return files;
 }
 
 function revokeImagePreviews(items: readonly CanvasItem[]) {
