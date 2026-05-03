@@ -127,12 +127,22 @@ async function fileFingerprint(file: File) {
 
 function imageFilesFromTransfer(data: DataTransfer) {
   const files = Array.from(data.files).filter((file) => file.type.startsWith("image/"));
+  const seen = new Set(files.map(fileIdentity));
   for (const item of Array.from(data.items)) {
     if (!item.type.startsWith("image/")) continue;
     const file = item.getAsFile();
-    if (file && !files.includes(file)) files.push(file);
+    if (!file) continue;
+    const identity = fileIdentity(file);
+    if (!seen.has(identity)) {
+      seen.add(identity);
+      files.push(file);
+    }
   }
   return files;
+}
+
+function fileIdentity(file: File) {
+  return [file.name, file.type, file.size, file.lastModified].join(":");
 }
 
 function revokeImagePreviews(items: readonly CanvasItem[]) {
@@ -548,13 +558,13 @@ export function Home() {
       let duplicateCount = 0;
       for (const file of imageFiles) {
         try {
-          const optimized = await optimizeImageForShare(file);
-          const fingerprint = await fileFingerprint(optimized.file);
-          if (seen.has(fingerprint)) {
+          const sourceFingerprint = await fileFingerprint(file);
+          if (seen.has(sourceFingerprint)) {
             duplicateCount += 1;
             continue;
           }
-          seen.add(fingerprint);
+          seen.add(sourceFingerprint);
+          const optimized = await optimizeImageForShare(file);
           optimizedImages.push(optimized);
         } catch (error) {
           notify.error(error instanceof Error ? error.message : "Could not add image");

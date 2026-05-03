@@ -44,6 +44,8 @@ function OGCard({ item, summary }: { item: UrlItem; summary?: ItemSummary }) {
   })();
 
   const showImage = Boolean(og?.image) && !imageFailed;
+  const title = og?.title || summary?.title || hostname;
+  const description = og?.description || summary?.summary;
 
   return (
     <a
@@ -52,8 +54,8 @@ function OGCard({ item, summary }: { item: UrlItem; summary?: ItemSummary }) {
       rel="noopener noreferrer"
       className="flex h-full flex-col bg-card"
     >
-      {showImage && (
-        <div className="relative min-h-0 flex-1">
+      {showImage ? (
+        <div className="relative min-h-0 flex-1 bg-muted">
           <img
             src={og?.image}
             alt={og?.title ?? ""}
@@ -64,19 +66,19 @@ function OGCard({ item, summary }: { item: UrlItem; summary?: ItemSummary }) {
             onError={() => setImageFailed(true)}
           />
         </div>
+      ) : (
+        <div className="grid min-h-0 flex-1 place-items-center bg-muted/70 p-4">
+          <PlatformIcon platform={item.platform} className="h-8 w-8 text-muted-foreground/45" />
+        </div>
       )}
       <div className="flex flex-col gap-1.5 p-4">
         <div className="flex items-center gap-2">
           <PlatformIcon platform={item.platform} className="h-4 w-4 shrink-0" />
           <span className="truncate text-[11px] text-muted-foreground/70">{hostname}</span>
         </div>
-        {(og?.title || summary?.title) && (
-          <p className="line-clamp-2 text-sm font-semibold leading-snug">
-            {og?.title || summary?.title}
-          </p>
-        )}
-        {summary?.summary && (
-          <p className="line-clamp-3 text-xs leading-relaxed text-muted-foreground">{summary.summary}</p>
+        <p className="line-clamp-2 text-sm font-semibold leading-snug">{title}</p>
+        {description && (
+          <p className="line-clamp-3 text-xs leading-relaxed text-muted-foreground">{description}</p>
         )}
       </div>
     </a>
