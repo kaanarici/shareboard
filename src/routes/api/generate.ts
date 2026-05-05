@@ -6,7 +6,7 @@ import { sanitizeGenerateRequestPayload, sanitizeGeneration } from "@/lib/canvas
 import type { GenerateRequestItem } from "@/lib/types";
 import { extractYouTubeId, extractTweetId } from "@/lib/youtube";
 
-const SYSTEM_PROMPT = `You are a content summarizer for Shareboard, a sharing tool. The user has collected links, notes, and screenshots to share.
+const SYSTEM_PROMPT = `You are a content summarizer for Shareboard, a sharing tool. The user has collected links, notes, JSON files, and screenshots to share.
 
 Your job:
 1. For each item, produce a concise summary (1-2 sentences), extract the title, identify the author if possible, and pull one key quote if relevant.
@@ -180,6 +180,13 @@ export const Route = createFileRoute("/api/generate")({
           }
           if (item.type === "note") {
             userContent.push({ type: "input_text", text: `[${i + 1}] Note (id: ${item.id}): ${item.text}` });
+            return;
+          }
+          if (item.type === "json") {
+            userContent.push({
+              type: "input_text",
+              text: `[${i + 1}] JSON file (id: ${item.id}, name: ${item.name}, size: ${item.size} bytes):\n${item.text.slice(0, 3000)}`,
+            });
             return;
           }
           if (item.type === "image") {

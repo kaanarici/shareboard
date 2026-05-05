@@ -51,6 +51,7 @@ import type {
 } from "@/lib/types";
 import { BOARD_SUMMARY_ITEM_ID, isDraftImageItem } from "@/lib/types";
 import { IMAGE_POLICY, formatBytes, optimizeImageForShare } from "@/lib/image-policy";
+import { JSON_POLICY, isJsonFile, jsonBytesForItems, jsonItemFromFile } from "@/lib/json-policy";
 import { copyText } from "@/lib/clipboard";
 import { readErrorMessage } from "@/lib/fetch-helpers";
 import type { BoardOrigin } from "@/lib/board-origin";
@@ -92,6 +93,10 @@ function looksLikeImageFilename(text: string) {
   return /^[^/\n\r]+\.(?:avif|bmp|gif|heic|heif|jpe?g|png|svg|webp)$/i.test(text.trim());
 }
 
+function looksLikeJsonFilename(text: string) {
+  return /^[^/\n\r]+\.json$/i.test(text.trim());
+}
+
 function cloneCanvasItem(item: CanvasItem): CanvasItem | null {
   if (item.id === BOARD_SUMMARY_ITEM_ID || item.type === "board_summary") return null;
   const id = nanoid(10);
@@ -112,6 +117,10 @@ function mediaBytesForItems(items: readonly CanvasItem[]) {
   return items.reduce((sum, item) => sum + (item.type === "image" ? item.size ?? 0 : 0), 0);
 }
 
+function jsonBytesForPages(pages: readonly BoardPage[]) {
+  return pages.reduce((n, p) => n + jsonBytesForItems(p.items), 0);
+}
+
 async function fileFingerprint(file: File) {
   const bytes = new Uint8Array(await file.arrayBuffer());
   const subtle = globalThis.crypto?.subtle;
@@ -125,13 +134,12 @@ async function fileFingerprint(file: File) {
   return `${file.type}:${file.size}:${hash >>> 0}`;
 }
 
-function imageFilesFromTransfer(data: DataTransfer) {
-  const files = Array.from(data.files).filter((file) => file.type.startsWith("image/"));
+function filesFromTransfer(data: DataTransfer, accepts: (file: File) => boolean) {
+  const files = Array.from(data.files).filter(accepts);
   const seen = new Set(files.map(fileIdentity));
   for (const item of Array.from(data.items)) {
-    if (!item.type.startsWith("image/")) continue;
     const file = item.getAsFile();
-    if (!file) continue;
+    if (!file || !accepts(file)) continue;
     const identity = fileIdentity(file);
     if (!seen.has(identity)) {
       seen.add(identity);
@@ -139,6 +147,10 @@ function imageFilesFromTransfer(data: DataTransfer) {
     }
   }
   return files;
+}
+
+function boardFilesFromTransfer(data: DataTransfer) {
+  return filesFromTransfer(data, (file) => file.type.startsWith("image/") || isJsonFile(file));
 }
 
 function fileIdentity(file: File) {
@@ -307,6 +319,10 @@ export function Home() {
     () => mediaBytesForPages(pages),
     [pages]
   );
+  const totalJsonBytes = useMemo(
+    () => jsonBytesForPages(pages),
+    [pages],
+  );
   const hasItems = totalContentItems > 0;
 
   useEffect(() => {
@@ -473,6 +489,33 @@ export function Home() {
     [activePage, maxRows]
   );
 
+  const addItemsWithSpill = useCallback(
+    (items: CanvasItem[]) => {
+      setPages((prev) => {
+        let nextPages = prev;
+        let landingPage = activePage;
+        let lastLandedIndex = activePage;
+        const idsByPage = new Map<number, string[]>();
+        for (const item of items) {
+          const result = addItemWithSpillToPages({
+            pages: nextPages,
+            activePage: landingPage,
+            item,
+            maxRows,
+          });
+          nextPages = result.pages;
+          landingPage = result.landedIndex;
+          lastLandedIndex = result.landedIndex;
+          idsByPage.set(result.landedIndex, [...(idsByPage.get(result.landedIndex) ?? []), item.id]);
+        }
+        pendingSelectedIdsRef.current = idsByPage.get(lastLandedIndex) ?? [];
+        if (lastLandedIndex !== activePage) pendingActivePageRef.current = lastLandedIndex;
+        return nextPages;
+      });
+    },
+    [activePage, maxRows],
+  );
+
   const addUrl = useCallback(
     async (rawUrl: string) => {
       if (!isValidUrl(rawUrl)) {
@@ -592,27 +635,7 @@ export function Home() {
 
       if (items.length === 0) return false;
 
-      setPages((prev) => {
-        let nextPages = prev;
-        let landingPage = activePage;
-        let lastLandedIndex = activePage;
-        const idsByPage = new Map<number, string[]>();
-        for (const item of items) {
-          const result = addItemWithSpillToPages({
-            pages: nextPages,
-            activePage: landingPage,
-            item,
-            maxRows,
-          });
-          nextPages = result.pages;
-          landingPage = result.landedIndex;
-          lastLandedIndex = result.landedIndex;
-          idsByPage.set(result.landedIndex, [...(idsByPage.get(result.landedIndex) ?? []), item.id]);
-        }
-        pendingSelectedIdsRef.current = idsByPage.get(lastLandedIndex) ?? [];
-        if (lastLandedIndex !== activePage) pendingActivePageRef.current = lastLandedIndex;
-        return nextPages;
-      });
+      addItemsWithSpill(items);
       notify.success(
         duplicateCount > 0
           ? `${items.length} unique ${items.length === 1 ? "image" : "images"} added, ${duplicateCount} duplicate ${duplicateCount === 1 ? "entry" : "entries"} skipped`
@@ -622,7 +645,75 @@ export function Home() {
       );
       return true;
     },
-    [activePage, maxRows],
+    [addItemsWithSpill],
+  );
+
+  const addJsonFiles = useCallback(
+    async (files: File[]) => {
+      const jsonFiles = files.filter(isJsonFile);
+      if (jsonFiles.length === 0) return false;
+
+      const seen = new Set<string>();
+      let duplicateCount = 0;
+      let jsonBytes = jsonBytesForPages(pagesRef.current);
+      const items: CanvasItem[] = [];
+
+      for (const file of jsonFiles) {
+        try {
+          const sourceFingerprint = await fileFingerprint(file);
+          if (seen.has(sourceFingerprint)) {
+            duplicateCount += 1;
+            continue;
+          }
+          seen.add(sourceFingerprint);
+
+          const item = await jsonItemFromFile(file, nanoid(10));
+          if (jsonBytes + item.size > JSON_POLICY.maxBoardBytes) {
+            notify.error(`Boards can hold up to ${formatBytes(JSON_POLICY.maxBoardBytes)} of JSON`);
+            break;
+          }
+          jsonBytes += item.size;
+          items.push(item);
+        } catch (error) {
+          notify.error(error instanceof Error ? error.message : "Could not add JSON");
+        }
+      }
+
+      if (items.length === 0) return false;
+
+      addItemsWithSpill(items);
+
+      notify.success(
+        duplicateCount > 0
+          ? `${items.length} unique ${items.length === 1 ? "JSON file" : "JSON files"} added, ${duplicateCount} duplicate ${duplicateCount === 1 ? "entry" : "entries"} skipped`
+          : items.length === 1
+            ? "JSON added"
+            : `${items.length} JSON files added`,
+      );
+      return true;
+    },
+    [addItemsWithSpill],
+  );
+
+  const addBoardFiles = useCallback(
+    async (files: File[]) => {
+      const boardFiles = files.filter((file) => file.type.startsWith("image/") || isJsonFile(file));
+      if (boardFiles.length === 0) return false;
+      const addedImages = await addImages(boardFiles);
+      const addedJson = await addJsonFiles(boardFiles);
+      return addedImages || addedJson;
+    },
+    [addImages, addJsonFiles],
+  );
+
+  const addFile = useCallback(
+    async (file: File) => {
+      if (file.type.startsWith("image/")) return addImage(file);
+      if (isJsonFile(file)) return addJsonFiles([file]);
+      notify.error("Only images and JSON files can be added");
+      return false;
+    },
+    [addImage, addJsonFiles],
   );
 
   const addNote = useCallback(
@@ -684,6 +775,10 @@ export function Home() {
         notify.error(`Boards can hold up to ${formatBytes(IMAGE_POLICY.maxBoardBytes)} of images`);
         return;
       }
+      if (source?.type === "json" && totalJsonBytes + source.size > JSON_POLICY.maxBoardBytes) {
+        notify.error(`Boards can hold up to ${formatBytes(JSON_POLICY.maxBoardBytes)} of JSON`);
+        return;
+      }
       setPages((prev) => {
         const result = duplicateItemWithSpillToPages({
           pages: prev,
@@ -697,7 +792,7 @@ export function Home() {
         return result.pages;
       });
     },
-    [maxRows]
+    [maxRows, totalJsonBytes]
   );
 
   const pasteCanvasItems = useCallback(
@@ -709,31 +804,16 @@ export function Home() {
         notify.error(`Boards can hold up to ${formatBytes(IMAGE_POLICY.maxBoardBytes)} of images`);
         return false;
       }
+      if (jsonBytesForPages(pagesRef.current) + jsonBytesForItems(copies) > JSON_POLICY.maxBoardBytes) {
+        revokeImagePreviews(copies);
+        notify.error(`Boards can hold up to ${formatBytes(JSON_POLICY.maxBoardBytes)} of JSON`);
+        return false;
+      }
 
-      setPages((prev) => {
-        let nextPages = prev;
-        let landingPage = activePage;
-        let lastLandedIndex = activePage;
-        const idsByPage = new Map<number, string[]>();
-        for (const item of copies) {
-          const result = addItemWithSpillToPages({
-            pages: nextPages,
-            activePage: landingPage,
-            item,
-            maxRows,
-          });
-          nextPages = result.pages;
-          landingPage = result.landedIndex;
-          lastLandedIndex = result.landedIndex;
-          idsByPage.set(result.landedIndex, [...(idsByPage.get(result.landedIndex) ?? []), item.id]);
-        }
-        pendingSelectedIdsRef.current = idsByPage.get(lastLandedIndex) ?? [];
-        if (lastLandedIndex !== activePage) pendingActivePageRef.current = lastLandedIndex;
-        return nextPages;
-      });
+      addItemsWithSpill(copies);
       return true;
     },
-    [activePage, maxRows],
+    [addItemsWithSpill],
   );
 
   const updateNoteText = useCallback(
@@ -799,14 +879,14 @@ export function Home() {
       if (needsSetup) return;
 
       const files = Array.from(data.files);
-      const imageFiles = imageFilesFromTransfer(data);
-      if (imageFiles.length > 0) {
-        void addImages(imageFiles);
+      const boardFiles = boardFilesFromTransfer(data);
+      if (boardFiles.length > 0) {
+        void addBoardFiles(boardFiles);
         return;
       }
 
       if (files.length > 0) {
-        notify.error("Only images can be dropped into a board");
+        notify.error("Only images and JSON files can be dropped into a board");
         return;
       }
 
@@ -830,7 +910,7 @@ export function Home() {
         notify.success("Note added");
       }
     },
-    [needsSetup, addImage, addImages, addNote, addUrl]
+    [needsSetup, addImage, addBoardFiles, addNote, addUrl]
   );
 
   // Install the paste listener once on mount and route through a latest-handler
@@ -855,19 +935,19 @@ export function Home() {
 
     if (clipboard.files.length > 0) {
       e.preventDefault();
-      const imageFiles = imageFilesFromTransfer(clipboard);
-      if (imageFiles.length > 0) {
-        void addImages(imageFiles);
+      const boardFiles = boardFilesFromTransfer(clipboard);
+      if (boardFiles.length > 0) {
+        void addBoardFiles(boardFiles);
       } else {
-        notify.error("Only images can be pasted into a board");
+        notify.error("Only images and JSON files can be pasted into a board");
       }
       return;
     }
 
-    const imageFilesFromItems = imageFilesFromTransfer(clipboard);
-    if (imageFilesFromItems.length > 0) {
+    const boardFilesFromItems = boardFilesFromTransfer(clipboard);
+    if (boardFilesFromItems.length > 0) {
       e.preventDefault();
-      void addImages(imageFilesFromItems);
+      void addBoardFiles(boardFilesFromItems);
       return;
     }
 
@@ -892,6 +972,11 @@ export function Home() {
     if (looksLikeImageFilename(text)) {
       e.preventDefault();
       notify.error("Paste the image data or drop the file onto the board");
+      return;
+    }
+    if (looksLikeJsonFilename(text)) {
+      e.preventDefault();
+      notify.error("Paste the JSON file or drop it onto the board");
       return;
     }
     e.preventDefault();
@@ -1147,7 +1232,7 @@ export function Home() {
         history={history}
         openingEntryId={openingEntryId}
         onChangePage={setActivePage}
-        onAddImage={(file) => void addImage(file)}
+        onAddFile={(file) => void addFile(file)}
         onPasteLink={openPasteDialog}
         onImport={openImportDialog}
         onGenerate={generate}

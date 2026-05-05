@@ -1,8 +1,19 @@
-import type { AuthorProfile, BoardPage, Canvas, GenerateResponse, NoteItem, ShareRequestItem, ShareRequestPayload, UrlItem } from "@/lib/types";
+import type {
+  AuthorProfile,
+  BoardPage,
+  Canvas,
+  GenerateResponse,
+  JsonItem,
+  NoteItem,
+  ShareRequestItem,
+  ShareRequestPayload,
+  UrlItem,
+} from "@/lib/types";
 
 type TitleableItem =
   | { type: "note"; text: string }
   | { type: "url"; url: string }
+  | { type: "json"; name: string }
   | { type: "image"; caption?: string }
   | { type: string };
 type TitleablePage = { items: readonly TitleableItem[] };
@@ -25,6 +36,9 @@ export function getBoardTitle(pages: readonly TitleablePage[]) {
       if (item.type === "image") {
         const caption = "caption" in item ? item.caption?.trim() : "";
         return caption || "Image board";
+      }
+      if (item.type === "json" && "name" in item) {
+        return item.name.trim() || "JSON board";
       }
     }
   }
@@ -97,8 +111,8 @@ export function canvasFromTextOnlyPayload({
     pages: payload.pages.map((page) => ({
       id: page.id,
       layouts: page.layouts,
-      items: page.items.filter(
-        (item): item is UrlItem | NoteItem => item.type === "url" || item.type === "note",
+      items: page.items.filter((item): item is UrlItem | NoteItem | JsonItem =>
+        item.type === "url" || item.type === "note" || item.type === "json",
       ),
     })),
     ...(generation ? { generation } : {}),

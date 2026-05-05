@@ -26,7 +26,9 @@ async function gunzip(bytes: Uint8Array<ArrayBuffer>): Promise<Uint8Array<ArrayB
 }
 
 export function canUseTinyShare(canvas: Canvas) {
-  return canvas.pages.every((page) => page.items.every((item) => item.type === "url" || item.type === "note"));
+  return canvas.pages.every((page) =>
+    page.items.every((item) => item.type === "url" || item.type === "note" || item.type === "json"),
+  );
 }
 
 export async function createTinyShareUrl(canvas: Canvas, origin: string) {

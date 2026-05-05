@@ -75,7 +75,7 @@ describe("canvas sanitizers", () => {
     ]);
   });
 
-  test("tiny shares keep only text and URL items", () => {
+  test("tiny shares keep text, URL, and JSON items", () => {
     const canvas = sanitizeTinyCanvas({
       id: "tiny",
       author: "Ada",
@@ -84,6 +84,7 @@ describe("canvas sanitizers", () => {
           id: "page",
           items: [
             { id: "url", type: "url", url: "https://example.com", platform: "website" },
+            { id: "json", type: "json", name: "data.json", text: '{"ok":true}', size: 11 },
             { id: "image", type: "image", url: "https://example.com/image.png" },
             { id: BOARD_SUMMARY_ITEM_ID, type: "board_summary" },
           ],
@@ -93,6 +94,7 @@ describe("canvas sanitizers", () => {
 
     expect(canvas?.pages[0]?.items).toEqual([
       { id: "url", type: "url", url: "https://example.com/", platform: "website" },
+      { id: "json", type: "json", name: "data.json", text: '{"ok":true}', size: 11 },
     ]);
   });
 
@@ -110,12 +112,14 @@ describe("canvas sanitizers", () => {
               file: { name: "image.png" },
               caption: "  screenshot  ",
             },
+            { id: "json", type: "json", name: " data.json ", text: ' {"ok":true} ', size: 11 },
           ],
         },
       ],
     });
     expect(share?.pages[0]?.items).toEqual([
       { id: "image", type: "image", caption: "screenshot" },
+      { id: "json", type: "json", name: "data.json", text: '{"ok":true}', size: 11 },
     ]);
 
     const generate = sanitizeGenerateRequestPayload({
@@ -128,9 +132,13 @@ describe("canvas sanitizers", () => {
           file: { name: "image.png" },
           caption: "  screenshot  ",
         },
+        { id: "json", type: "json", name: "data.json", text: '{"ok":true}', size: 11 },
       ],
     });
-    expect(generate?.items).toEqual([{ id: "image", type: "image", caption: "screenshot" }]);
+    expect(generate?.items).toEqual([
+      { id: "image", type: "image", caption: "screenshot" },
+      { id: "json", type: "json", name: "data.json", text: '{"ok":true}', size: 11 },
+    ]);
   });
 
   test("generation sanitizer preserves the declared item summary shape", () => {

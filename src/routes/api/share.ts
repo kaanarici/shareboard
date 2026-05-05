@@ -46,6 +46,7 @@ const SHARE_LIMITS = {
   maxImages: 32,
   maxImageBytes: 4 * 1024 * 1024,
   maxTotalImageBytes: 75 * 1024 * 1024,
+  maxTotalJsonBytes: 2 * 1024 * 1024,
   maxPreviewBytes: 768 * 1024,
 } as const;
 
@@ -290,8 +291,8 @@ function parseEncryptedPayload(raw: string | undefined): EncryptedSharePayload {
   };
 }
 
-/** Counters shared across pages to enforce board-wide image caps. */
-type ImageCounters = { count: number; bytes: number };
+/** Counters shared across pages to enforce board-wide file caps. */
+type FileCounters = { imageCount: number; imageBytes: number; jsonBytes: number };
 
 type StoredImageItem = Extract<SharedCanvasItem, { type: "image" }>;
 
@@ -301,7 +302,7 @@ async function buildSharedItems(
   rawItems: ShareRequestItem[],
   files: Map<string, File>,
   uploadedKeys: string[],
-  counters: ImageCounters,
+  counters: FileCounters,
   /** When provided (replace flow), image items with no uploaded bytes reuse the existing object. */
   reuseImagesById?: Map<string, StoredImageItem>,
 ): Promise<SharedCanvasItem[]> {
@@ -316,9 +317,18 @@ async function buildSharedItems(
       continue;
     }
 
+    if (item.type === "json") {
+      counters.jsonBytes += item.size;
+      if (counters.jsonBytes > SHARE_LIMITS.maxTotalJsonBytes) {
+        badRequest(`JSON files exceed ${Math.floor(SHARE_LIMITS.maxTotalJsonBytes / 1024 / 1024)} MB total`);
+      }
+      items.push(item);
+      continue;
+    }
+
     if (item.type === "image") {
-      counters.count += 1;
-      if (counters.count > SHARE_LIMITS.maxImages) {
+      counters.imageCount += 1;
+      if (counters.imageCount > SHARE_LIMITS.maxImages) {
         badRequest(`Too many images (max ${SHARE_LIMITS.maxImages})`);
       }
 
@@ -327,8 +337,8 @@ async function buildSharedItems(
 
       if (!file && reuseImagesById?.has(sanitized.id)) {
         const reused = reuseImagesById.get(sanitized.id)!;
-        counters.bytes += reused.size ?? 0;
-        if (counters.bytes > SHARE_LIMITS.maxTotalImageBytes) {
+        counters.imageBytes += reused.size ?? 0;
+        if (counters.imageBytes > SHARE_LIMITS.maxTotalImageBytes) {
           badRequest(`Images exceed ${Math.floor(SHARE_LIMITS.maxTotalImageBytes / 1024 / 1024)} MB total`);
         }
         items.push({
@@ -349,8 +359,8 @@ async function buildSharedItems(
         badRequest(`Image ${sanitized.id} exceeds ${Math.floor(SHARE_LIMITS.maxImageBytes / 1024 / 1024)} MB`);
       }
 
-      counters.bytes += file.size;
-      if (counters.bytes > SHARE_LIMITS.maxTotalImageBytes) {
+      counters.imageBytes += file.size;
+      if (counters.imageBytes > SHARE_LIMITS.maxTotalImageBytes) {
         badRequest(`Images exceed ${Math.floor(SHARE_LIMITS.maxTotalImageBytes / 1024 / 1024)} MB total`);
       }
 
@@ -399,7 +409,7 @@ async function buildSharedPages(
   uploadedKeys: string[],
   reuseImagesById?: Map<string, StoredImageItem>,
 ): Promise<SharedBoardPage[]> {
-  const counters: ImageCounters = { count: 0, bytes: 0 };
+  const counters: FileCounters = { imageCount: 0, imageBytes: 0, jsonBytes: 0 };
   const pages: SharedBoardPage[] = [];
 
   for (const page of rawPages) {

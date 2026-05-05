@@ -21,6 +21,7 @@ describe("share-prep", () => {
         items: [
           { id: "__summary__", type: "board_summary" },
           { id: "note-1", type: "note", text: "hello" },
+          { id: "json-1", type: "json", name: "data.json", text: '{"ok":true}', size: 11 },
           {
             id: "img-1",
             type: "image",
@@ -52,6 +53,7 @@ describe("share-prep", () => {
           layouts: EMPTY_LAYOUTS,
           items: [
             { id: "note-1", type: "note", text: "hello" },
+            { id: "json-1", type: "json", name: "data.json", text: '{"ok":true}', size: 11 },
             {
               id: "img-1",
               type: "image",
@@ -63,10 +65,10 @@ describe("share-prep", () => {
         },
       ],
     });
-    expect(countPayloadItems(payload)).toBe(2);
+    expect(countPayloadItems(payload)).toBe(3);
   });
 
-  test("canvasFromTextOnlyPayload keeps only note/url and preserves authored metadata", () => {
+  test("canvasFromTextOnlyPayload keeps text-safe items and preserves authored metadata", () => {
     const payload: ShareRequestPayload = {
       author: "Ada",
       pages: [
@@ -76,6 +78,7 @@ describe("share-prep", () => {
           items: [
             { id: "note-1", type: "note", text: "hello" },
             { id: "url-1", type: "url", url: "https://example.com", platform: "website" },
+            { id: "json-1", type: "json", name: "data.json", text: '{"ok":true}', size: 11 },
             { id: "img-1", type: "image", caption: "Cover" },
           ],
         },
@@ -100,6 +103,7 @@ describe("share-prep", () => {
           items: [
             { id: "note-1", type: "note", text: "hello" },
             { id: "url-1", type: "url", url: "https://example.com", platform: "website" },
+            { id: "json-1", type: "json", name: "data.json", text: '{"ok":true}', size: 11 },
           ],
         },
       ],
@@ -115,6 +119,7 @@ describe("share-prep", () => {
         },
       ]),
     ).toBe("First line second line");
+    expect(getBoardTitle([{ items: [{ type: "json", name: "config.json" }] }])).toBe("config.json");
     expect(getHistorySubtitle("locked", 2, 3)).toBe("Locked share · 3 items · 2 pages");
   });
 

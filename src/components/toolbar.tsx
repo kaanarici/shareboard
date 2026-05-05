@@ -7,7 +7,6 @@ import { useIsMobile } from "@/lib/use-is-mobile";
 import {
   Check,
   Clock3,
-  ImagePlus,
   Sparkles,
   LockKeyhole,
   Settings,
@@ -39,7 +38,7 @@ export function Toolbar({
   history,
   openingEntryId,
   onChangePage,
-  onAddImage,
+  onAddFile,
   onPasteLink,
   onImport,
   onGenerate,
@@ -57,7 +56,7 @@ export function Toolbar({
   history: BoardHistoryEntry[];
   openingEntryId: string | null;
   onChangePage: (next: number) => void;
-  onAddImage: (file: File) => void;
+  onAddFile: (file: File) => void;
   onPasteLink: () => void;
   onImport: () => void;
   onGenerate: () => void;
@@ -93,7 +92,7 @@ export function Toolbar({
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    onAddImage(file);
+    onAddFile(file);
     e.target.value = "";
   };
 
@@ -104,8 +103,8 @@ export function Toolbar({
       onClick: onPasteLink,
     },
     {
-      label: "Upload image",
-      icon: <ImagePlus className="h-4 w-4" />,
+      label: "Upload file",
+      icon: <FilePlus className="h-4 w-4" />,
       onClick: () => fileRef.current?.click(),
     },
     {
@@ -164,7 +163,13 @@ export function Toolbar({
 
   return (
     <>
-      <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*,.json,application/json"
+        className="hidden"
+        onChange={handleFile}
+      />
 
       <div
         className="board-toolbar"

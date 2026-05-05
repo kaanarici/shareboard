@@ -54,6 +54,14 @@ export interface NoteItem {
   text: string;
 }
 
+export interface JsonItem {
+  id: string;
+  type: "json";
+  name: string;
+  text: string;
+  size: number;
+}
+
 /** Synthetic item for AI overall summary — same grid behavior as other cards; data lives on `generation`. */
 export const BOARD_SUMMARY_ITEM_ID = "__summary__" as const;
 
@@ -66,6 +74,7 @@ export type EditorCanvasItem =
   | UrlItem
   | DraftImageItem
   | SharedImageItem
+  | JsonItem
   | NoteItem
   | BoardSummaryItem;
 export type CanvasItem = EditorCanvasItem;
@@ -73,6 +82,7 @@ export type CanvasItem = EditorCanvasItem;
 export type ShareableCanvasItem =
   | UrlItem
   | SharedImageItem
+  | JsonItem
   | NoteItem
   | BoardSummaryItem;
 export type SharedCanvasItem = ShareableCanvasItem;
@@ -81,7 +91,7 @@ export type ShareRequestImageItem = Pick<
   SharedImageItem,
   "id" | "type" | "mimeType" | "size" | "caption"
 >;
-export type ShareRequestItem = UrlItem | NoteItem | ShareRequestImageItem;
+export type ShareRequestItem = UrlItem | NoteItem | JsonItem | ShareRequestImageItem;
 
 export interface OGData {
   title?: string;
@@ -252,7 +262,7 @@ export function isShareCreateResponse(value: unknown): value is ShareCreateRespo
 }
 
 export type GenerateRequestImageItem = Pick<SharedImageItem, "id" | "type" | "caption">;
-export type GenerateRequestItem = UrlItem | NoteItem | GenerateRequestImageItem;
+export type GenerateRequestItem = UrlItem | NoteItem | JsonItem | GenerateRequestImageItem;
 
 export interface GenerateRequestPayload {
   items: GenerateRequestItem[];

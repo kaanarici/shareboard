@@ -11,6 +11,7 @@ import type {
   GenerateRequestItem,
   GenerateRequestPayload,
   GridLayouts,
+  JsonItem,
   OGData,
   Platform,
   ShareRequestImageItem,
@@ -42,6 +43,8 @@ export const SANITIZE_LIMITS = {
   maxSummaryItemChars: 800,
   maxTags: 8,
   maxSocialUrlChars: 2048,
+  maxJsonNameChars: 120,
+  maxJsonChars: 256 * 1024,
 } as const;
 
 export function trimText(value: unknown, max: number): string {
@@ -221,6 +224,19 @@ export function sanitizeNoteItem(value: unknown) {
   return id && text ? { id, type: "note" as const, text } : null;
 }
 
+export function sanitizeJsonItem(value: unknown): JsonItem | null {
+  if (!value || typeof value !== "object") return null;
+  const item = value as Record<string, unknown>;
+  const id = trimText(item.id, 80);
+  const name = trimText(item.name, SANITIZE_LIMITS.maxJsonNameChars) || "data.json";
+  const text = typeof item.text === "string" ? item.text.trim() : "";
+  const size = Number(item.size);
+  if (!id || !text || text.length > SANITIZE_LIMITS.maxJsonChars) return null;
+  const safeSize = Number.isFinite(size) && size > 0 ? Math.floor(size) : new TextEncoder().encode(text).byteLength;
+  if (safeSize > SANITIZE_LIMITS.maxJsonChars) return null;
+  return { id, type: "json", name, text, size: safeSize };
+}
+
 export function sanitizeShareRequestImageItem(value: unknown): ShareRequestImageItem | null {
   if (!value || typeof value !== "object") return null;
   const item = value as Record<string, unknown>;
@@ -243,6 +259,7 @@ export function sanitizeShareRequestItem(value: unknown): ShareRequestItem | nul
   const type = trimText((value as Record<string, unknown>).type, 20);
   if (type === "url") return sanitizeUrlItem(value);
   if (type === "note") return sanitizeNoteItem(value);
+  if (type === "json") return sanitizeJsonItem(value);
   if (type === "image") return sanitizeShareRequestImageItem(value);
   return null;
 }
@@ -284,6 +301,7 @@ export function sanitizeShareableCanvasItem(
   const type = trimText((value as Record<string, unknown>).type, 20);
   if (type === "url") return sanitizeUrlItem(value);
   if (type === "note") return sanitizeNoteItem(value);
+  if (type === "json") return sanitizeJsonItem(value);
   if (type === "image") return sanitizeSharedImageItem(value, { allowBlobUrl: options.allowBlobImageUrls });
   if (
     options.allowBoardSummary &&
@@ -409,6 +427,7 @@ export function sanitizeGenerateRequestPayload(value: unknown): GenerateRequestP
       const type = trimText((item as Record<string, unknown>).type, 20);
       if (type === "url") return sanitizeUrlItem(item);
       if (type === "note") return sanitizeNoteItem(item);
+      if (type === "json") return sanitizeJsonItem(item);
       if (type === "image") return sanitizeShareRequestImageItem(item);
       return null;
     })

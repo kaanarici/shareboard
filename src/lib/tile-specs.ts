@@ -80,6 +80,10 @@ export function tileSpecFor(
     };
   }
 
+  if (item.type === "json") {
+    return { preferredSpan: 8, preferredRows: 10, minSpan: 4, minRows: 5 };
+  }
+
   if (item.type === "note") {
     const len = item.text.length;
     const preferredSpan = len < 50 ? 6 : len < 150 ? 8 : 10;

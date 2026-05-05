@@ -93,24 +93,29 @@ body.grid-interacting .grid-interacting-fade {
   width: 28px !important;
   height: 28px !important;
   background-image: none !important;
-  opacity: 0;
   pointer-events: auto !important;
-  transition: opacity 120ms ease;
-}
-
-.react-grid-item:hover > .react-resizable-handle,
-.react-grid-item.resizing > .react-resizable-handle {
-  opacity: 1;
 }
 
 .react-grid-item > .react-resizable-handle::after {
   content: "";
   display: block !important;
   position: absolute;
-  inset: 8px;
+  right: 7px;
+  bottom: 7px;
+  width: 14px;
+  height: 14px;
   border-right: 2px solid rgba(10, 10, 10, 0.42);
   border-bottom: 2px solid rgba(10, 10, 10, 0.42);
-  border-radius: 1px;
+  border-radius: 0 0 14px 0;
+  opacity: 0;
+  transform: scale(0.82);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.react-grid-item > .react-resizable-handle:hover::after,
+.react-grid-item.resizing > .react-resizable-handle:hover::after {
+  opacity: 1;
+  transform: scale(1);
 }
 
 .react-grid-item > .react-resizable-handle.react-resizable-handle-se { cursor: se-resize !important; }

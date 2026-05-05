@@ -4,6 +4,7 @@ import type { CanvasItem, GenerateResponse, GridLayouts } from "@/lib/types";
 import { UrlCard } from "./url-card";
 import { ImageCard } from "./image-card";
 import { ImageLightbox } from "./image-lightbox";
+import { JsonCard } from "./json-card";
 import { NoteCard } from "./note-card";
 import { SummarySection } from "./summary-section";
 import {
@@ -26,6 +27,10 @@ export const TWEET_ASPECT_STORAGE_KEY = "shareboard_tweet_aspects";
 
 function isTwitterItem(item: CanvasItem): boolean {
   return item.type === "url" && item.platform === "twitter";
+}
+
+function itemOverflowClass(item: CanvasItem) {
+  return item.type === "note" ? "overflow-auto" : "overflow-hidden";
 }
 
 function blurActiveElementSoon() {
@@ -350,6 +355,7 @@ export function Canvas({
           onUpdateText={onUpdateNoteText}
         />
       )}
+      {item.type === "json" && <JsonCard item={item} summary={getSummary(item.id)} />}
       {item.type === "board_summary" && generation && (
         <div className="h-full w-full border border-border/40 bg-card rounded-lg p-5">
           <SummarySection summary={generation.overall_summary} />
@@ -476,7 +482,7 @@ export function Canvas({
                       </button>
                     </div>
                   )}
-                  <div className={`h-full w-full ${item.type === "url" ? "overflow-hidden" : "overflow-auto"}`}>
+                  <div className={`h-full w-full ${itemOverflowClass(item)}`}>
                     {renderItemBody(item)}
                   </div>
                 </div>
@@ -556,9 +562,7 @@ export function Canvas({
                   <div className="absolute inset-0 z-10 rounded-3xl" />
                 )}
                 <div
-                  className={`h-full w-full ${
-                    item.type === "url" ? "overflow-hidden" : "overflow-auto"
-                  }`}
+                  className={`h-full w-full ${itemOverflowClass(item)}`}
                 >
                   {renderItemBody(item)}
                 </div>
