@@ -133,9 +133,9 @@ describe("packLayout", () => {
     expect(bottom).toBeLessThanOrEqual(12);
     expect(packed).toHaveLength(4);
   });
-  test("lets layout overflow rather than crushing tiles below minRows", () => {
+  test("reports overflow rather than crushing tiles below minRows", () => {
     // Budget too tight for even minRows-respecting packing (5 stacked rows × minRows 3 = 15 > 10).
-    // Packer should keep tiles at minRows and let canvas scrolling handle the overflow.
+    // Packer should keep tiles at minRows so callers can spill the extra item instead.
     const specs: Array<{ id: string } & TileSpec> = Array.from({ length: 10 }, (_, i) => ({
       id: `tile${i}`,
       preferredSpan: 12,

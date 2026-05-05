@@ -214,8 +214,7 @@ export function packLayout(
 
   // Budget is genuinely too tight to fit everything even at minRows. Rather
   // than crushing tiles below minRows (unreadable), keep them at minRows and
-  // let the canvas scroll. This matches the "infinitely scalable canvas"
-  // model: tiles stay legible; the user scrolls to reach overflow content.
+  // report overflow so the page lifecycle can spill the item to another page.
   return shrunkPacked;
 }
 

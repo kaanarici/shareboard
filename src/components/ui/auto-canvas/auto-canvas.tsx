@@ -2,7 +2,6 @@ import { forwardRef, useCallback, useMemo, useRef, useState, type ReactNode } fr
 import { Responsive, useContainerWidth, noCompactor } from "react-grid-layout";
 import type { Layout, LayoutItem, ResponsiveLayouts } from "react-grid-layout";
 import { aspectRatio, gridBounds, snapToGrid } from "react-grid-layout/core";
-import "react-grid-layout/css/styles.css";
 import type { AutoLayouts, TileSpecMap } from "./types";
 import {
   chooseRows,
@@ -193,16 +192,48 @@ export const AutoCanvas = forwardRef<HTMLDivElement, AutoCanvasProps>(function A
         const spec = tileSpecs[l.i];
         if (!spec) return { ...l, constraints: [snapToGrid(1), gridBounds] };
         if (spec.aspect && spec.aspect > 0) {
-          const rows = chooseRows(spec, l.w, {
+          let w = l.w;
+          let h = chooseRows(spec, w, {
             columns: cols,
             containerWidth: cw,
             rowHeight,
             gap,
             maxRows,
           });
+          const rowBudget = maxRows && maxRows > 0 ? Math.max(1, maxRows - l.y) : null;
+          if (rowBudget && h > rowBudget) {
+            for (let nextW = Math.min(w, cols); nextW >= 1; nextW--) {
+              const nextH = chooseRows(spec, nextW, {
+                columns: cols,
+                containerWidth: cw,
+                rowHeight,
+                gap,
+                maxRows,
+              });
+              if (nextH <= rowBudget) {
+                w = nextW;
+                h = nextH;
+                break;
+              }
+            }
+            h = Math.min(h, rowBudget);
+          }
+          const minH = spec.minRows != null
+            ? Math.min(spec.minRows, h)
+            : l.minH != null
+              ? Math.min(l.minH, h)
+              : undefined;
+          const minW = spec.minSpan != null
+            ? Math.min(spec.minSpan, w)
+            : l.minW != null
+              ? Math.min(l.minW, w)
+              : undefined;
           return {
             ...l,
-            h: rows,
+            w,
+            h,
+            ...(minW != null && { minW }),
+            ...(minH != null && { minH }),
             constraints: [snapToGrid(1), aspectRatio(spec.aspect), gridBounds],
           };
         }
@@ -219,6 +250,9 @@ export const AutoCanvas = forwardRef<HTMLDivElement, AutoCanvasProps>(function A
   const dragPreviewRef = useRef<ResponsiveLayouts | null>(null);
   const pageHeight = maxRows && maxRows > 0
     ? maxRows * rowHeight + gap * Math.max(0, maxRows - 1)
+    : undefined;
+  const boundedCanvasStyle = pageHeight
+    ? { height: pageHeight, minHeight: pageHeight, maxHeight: pageHeight, overflow: "hidden" }
     : undefined;
   const setDragPreviewLayouts = useCallback((next: ResponsiveLayouts | null) => {
     if (sameLayouts(dragPreviewRef.current, next)) return;
@@ -391,14 +425,14 @@ export const AutoCanvas = forwardRef<HTMLDivElement, AutoCanvasProps>(function A
           maxRows={maxRows}
           margin={[gap, gap]}
           containerPadding={[0, 0]}
-          autoSize={true}
-          style={pageHeight ? { minHeight: pageHeight } : undefined}
+          autoSize={!pageHeight}
+          style={boundedCanvasStyle}
           dragConfig={{
             enabled: !readonly,
             bounded: !!pageHeight,
             cancel: ".ProseMirror, input, textarea, [contenteditable=true], .grid-card-close, .grid-no-drag",
           }}
-          resizeConfig={{ enabled: !readonly, handles: ["se", "sw", "ne", "nw"] }}
+          resizeConfig={{ enabled: !readonly, handles: ["se", "sw", "ne", "nw", "e", "w", "s", "n"] }}
           compactor={freePlacementCompactor}
           onBreakpointChange={(bp: string) => {
             breakpointRef.current = bp === "sm" ? "sm" : "lg";

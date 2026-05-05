@@ -18,7 +18,7 @@
 }
 
 body.grid-interacting .react-grid-item:not(.react-draggable-dragging):not(.resizing) {
-  transition: transform 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1) !important;
 }
 
 /*
@@ -35,7 +35,7 @@ body.grid-interacting .react-grid-item:not(.react-draggable-dragging):not(.resiz
   opacity: 1 !important;
   box-shadow: none !important;
   backdrop-filter: none !important;
-  transition: transform 140ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1) !important;
 }
 
 /*
@@ -88,12 +88,36 @@ body.grid-interacting .grid-interacting-fade {
   filter: grayscale(1);
 }
 
-/* Resize handles — invisible, only cursor changes */
 .react-grid-item > .react-resizable-handle {
-  z-index: 15 !important;
-  background: transparent !important;
+  z-index: 40 !important;
+  width: 28px !important;
+  height: 28px !important;
+  background-image: none !important;
+  opacity: 0;
+  pointer-events: auto !important;
+  transition: opacity 120ms ease;
+}
+
+.react-grid-item:hover > .react-resizable-handle,
+.react-grid-item.resizing > .react-resizable-handle {
+  opacity: 1;
 }
 
 .react-grid-item > .react-resizable-handle::after {
-  display: none !important;
+  content: "";
+  display: block !important;
+  position: absolute;
+  inset: 8px;
+  border-right: 2px solid rgba(10, 10, 10, 0.42);
+  border-bottom: 2px solid rgba(10, 10, 10, 0.42);
+  border-radius: 1px;
 }
+
+.react-grid-item > .react-resizable-handle.react-resizable-handle-se { cursor: se-resize !important; }
+.react-grid-item > .react-resizable-handle.react-resizable-handle-sw { cursor: sw-resize !important; }
+.react-grid-item > .react-resizable-handle.react-resizable-handle-ne { cursor: ne-resize !important; }
+.react-grid-item > .react-resizable-handle.react-resizable-handle-nw { cursor: nw-resize !important; }
+.react-grid-item > .react-resizable-handle.react-resizable-handle-e,
+.react-grid-item > .react-resizable-handle.react-resizable-handle-w { cursor: ew-resize !important; }
+.react-grid-item > .react-resizable-handle.react-resizable-handle-s,
+.react-grid-item > .react-resizable-handle.react-resizable-handle-n { cursor: ns-resize !important; }
