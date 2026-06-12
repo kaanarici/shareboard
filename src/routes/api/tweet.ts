@@ -48,10 +48,27 @@ function getClientIp(request: Request): string | null {
   return ip && ip.length > 0 ? ip : null;
 }
 
+// The 2026 syndication response ships `entities` with only `urls`; react-tweet's
+// enrichment iterates hashtags/symbols/user_mentions and throws "entities is not
+// iterable" when they're absent. Backfill the missing arrays so embeds render.
+function normalizeTweet(tweet: TweetData): TweetData {
+  const entities = (tweet as { entities?: Record<string, unknown> }).entities ?? {};
+  return {
+    ...tweet,
+    entities: {
+      hashtags: [],
+      symbols: [],
+      user_mentions: [],
+      urls: [],
+      ...entities,
+    },
+  } as TweetData;
+}
+
 export async function createTweetResponse(id: string, fetchTweet: TweetFetcher = fetchTweetWithBrowserUA) {
   const tweet = await fetchTweet(id);
   return Response.json(
-    { data: tweet ?? null },
+    { data: tweet ? normalizeTweet(tweet) : null },
     {
       status: tweet ? 200 : 404,
       headers: tweetHeaders(),

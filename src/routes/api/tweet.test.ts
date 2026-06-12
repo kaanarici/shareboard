@@ -36,7 +36,10 @@ describe("tweet route", () => {
     expect(response.headers.get("Cache-Control")).toBe(TWEET_CACHE_CONTROL);
     expect(response.headers.get("Content-Security-Policy")).toBe("default-src 'none'; sandbox");
     expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
-    expect(await response.json()).toEqual({ data: tweet });
+    // The route backfills the entity arrays the 2026 syndication API omits.
+    expect(await response.json()).toEqual({
+      data: { ...tweet, entities: { hashtags: [], symbols: [], user_mentions: [], urls: [] } },
+    });
   });
 
   test("returns the react-tweet not-found envelope when the tweet is absent", async () => {
