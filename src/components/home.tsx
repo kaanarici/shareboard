@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { AnimatePresence, motion } from "motion/react";
-import { Check, Copy, Download, Loader2, QrCode, Save, Share2 } from "lucide-react";
+import { Check, Copy, Download, Loader2, MonitorSmartphone, QrCode, Save, Share2 } from "lucide-react";
 import {
   addItemWithSpillToPages,
   duplicateItemWithSpillToPages,
@@ -30,7 +30,7 @@ import {
   removeItemsFromPage,
   revokeDraftImagePreviews,
 } from "@/lib/board-lifecycle";
-import { getApiKey, isSetup, useSyncedSetting } from "@/lib/store";
+import { getApiKey, getName, getProfile, isSetup, useSyncedSetting } from "@/lib/store";
 import {
   clearLocalDraft,
   deleteLibraryBoard,
@@ -43,7 +43,9 @@ import {
   saveLocalDraft,
   type LibraryBoardMeta,
 } from "@/lib/local-draft";
-import { getBoardTitle } from "@/lib/share-prep";
+import { canvasFromTextOnlyPayload, collectSharePayload, getBoardTitle } from "@/lib/share-prep";
+import { canUseTinyShare } from "@/lib/tiny-share";
+import { createHandoffPackage, encodeHandoffUrl, formatHandoffCode } from "@/lib/handoff";
 import { detectPlatform, isValidUrl } from "@/lib/platforms";
 import { resolveShareIntake } from "@/lib/share-intake";
 import { parseClipHash } from "@/lib/bookmarklet";
@@ -202,6 +204,8 @@ export function Home() {
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importInput, setImportInput] = useState("");
   const [isImporting, setIsImporting] = useState(false);
+  const [handoffCode, setHandoffCode] = useState("");
+  const [handoffSending, setHandoffSending] = useState(false);
   const [pasteDialogOpen, setPasteDialogOpen] = useState(false);
   const [pasteInput, setPasteInput] = useState("");
   const [saveState, setSaveState] = useState<"saved" | "saving" | "save">("saved");
@@ -334,6 +338,7 @@ export function Home() {
           "invalid-input": "Paste a Shareboard link to import",
           "tiny-decode-failed": "Couldn't read that shared board",
           "fetch-failed": "Couldn't fetch that board (it may be on another host)",
+          "handoff-gone": "That handoff code has expired or was already used",
           locked: "That board is locked. Open the link to view it.",
           unreadable: "That board is locked or not importable",
           "wrong-pin": "Wrong pin",
@@ -348,6 +353,57 @@ export function Home() {
       setIsImporting(false);
     }
   }, [importInput, isImporting, restoreBoard]);
+
+  const sendToDevice = useCallback(async () => {
+    if (handoffSending) return;
+    const authorProfile = getProfile();
+    const payload = collectSharePayload({ pages, generation, author: getName(), authorProfile });
+    // canUseTinyShare flags image items (board_summary is already dropped by
+    // collectSharePayload). Handoff can only carry text/url/json boards today.
+    if (!canUseTinyShare({ pages: payload.pages } as unknown as SharedCanvasData)) {
+      notify.error("Boards with images can't be handed off yet");
+      return;
+    }
+    const canvas = canvasFromTextOnlyPayload({
+      payload,
+      generation,
+      authorProfile,
+      createdAt: new Date().toISOString(),
+    });
+
+    setHandoffSending(true);
+    try {
+      // The code is the only decryption secret — it travels home in the QR/URL
+      // fragment and as the typeable code, never in the POST body below.
+      let posted = false;
+      for (let attempt = 0; attempt < 2 && !posted; attempt++) {
+        const pkg = await createHandoffPackage(canvas);
+        const res = await fetch("/api/handoff", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            storageId: pkg.storageId,
+            ciphertext: pkg.ciphertext,
+            iv: pkg.iv,
+            salt: pkg.salt,
+          }),
+        });
+        if (res.status === 201) {
+          setHandoffCode(pkg.code);
+          posted = true;
+        } else if (res.status !== 409) {
+          // 409 = a storage-id collision; the loop regenerates a fresh code once.
+          notify.error(await readErrorMessage(res, "Couldn't create the handoff"));
+          return;
+        }
+      }
+      if (!posted) notify.error("Couldn't create the handoff. Try again.");
+    } catch {
+      notify.error("Couldn't create the handoff. Try again.");
+    } finally {
+      setHandoffSending(false);
+    }
+  }, [pages, generation, handoffSending]);
 
   const {
     shareState,
@@ -1340,6 +1396,21 @@ export function Home() {
           )}
           <span>{shareState === "copied" ? "Copied" : "Share"}</span>
         </button>
+        <button
+          type="button"
+          className="board-notch-action"
+          onClick={() => void sendToDevice()}
+          disabled={!hasItems || handoffSending}
+          aria-label="Send board to another device"
+          title="Send to device"
+        >
+          {handoffSending ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <MonitorSmartphone className="h-3.5 w-3.5" />
+          )}
+          <span>Send</span>
+        </button>
         {lastShareUrl && (
           <button
             type="button"
@@ -1571,6 +1642,51 @@ export function Home() {
             >
               <Copy className="h-4 w-4" />
               Copy
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!handoffCode}
+        onOpenChange={(open) => {
+          if (!open) setHandoffCode("");
+        }}
+      >
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>Send to device</DialogTitle>
+            <DialogDescription>
+              Scan the QR code on your other device, or open its Import dialog and type the code below.
+            </DialogDescription>
+          </DialogHeader>
+          {handoffCode && (
+            <Suspense
+              fallback={<div className="setup-dialog-tile mx-auto" style={{ width: 216, height: 216 }} />}
+            >
+              <QrCodeView url={encodeHandoffUrl(window.location.origin, handoffCode)} />
+            </Suspense>
+          )}
+          <div className="setup-dialog-tile items-center text-center">
+            <span className="select-all font-mono text-[1.75rem] font-semibold leading-tight tracking-[0.06em] tabular-nums">
+              {handoffCode && formatHandoffCode(handoffCode)}
+            </span>
+            <span className="text-xs text-muted-foreground">Expires in 15 minutes · One-time use</span>
+          </div>
+          <DialogFooter className="mt-2">
+            <DialogClose render={<Button type="button" variant="outline" />}>Done</DialogClose>
+            <Button
+              type="button"
+              onClick={async () => {
+                if (await copyText(encodeHandoffUrl(window.location.origin, handoffCode))) {
+                  notify.success("Handoff link copied to clipboard");
+                } else {
+                  notify.error("Couldn't copy the link");
+                }
+              }}
+            >
+              <Copy className="h-4 w-4" />
+              Copy link
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,4 +1,10 @@
 import { sanitizePublicCanvasManifest } from "@/lib/canvas-sanitize";
+import {
+  createHandoffStorageId,
+  decryptHandoff,
+  normalizeHandoffCode,
+  parseHandoffFragment,
+} from "@/lib/handoff";
 import { storedBoardFetchUrl } from "@/lib/shared-board";
 import { decodeTinyShare, readStoredShareId, readTinyPayloadFromUrl } from "@/lib/tiny-share";
 import { isEncryptedCanvas, type Canvas } from "@/lib/types";
@@ -7,6 +13,7 @@ export type ImportError =
   | "invalid-input"
   | "tiny-decode-failed"
   | "fetch-failed"
+  | "handoff-gone"
   | "locked"
   | "unreadable"
   | "wrong-pin";
@@ -25,6 +32,9 @@ export async function importFromUrl(raw: string): Promise<ImportResult> {
   const input = raw.trim();
   if (!input) return { ok: false, error: "invalid-input" };
 
+  const handoffCode = readHandoffCode(input);
+  if (handoffCode) return importHandoff(handoffCode);
+
   const tinyPayload = readTinyPayloadFromUrl(input);
   if (tinyPayload) {
     const canvas = await decodeTinyShare(tinyPayload).catch(() => null);
@@ -34,6 +44,49 @@ export async function importFromUrl(raw: string): Promise<ImportResult> {
   const storedId = readStoredShareId(input);
   if (!storedId) return { ok: false, error: "invalid-input" };
   return fetchStoredCanvas(storedId);
+}
+
+/**
+ * A bare handoff code (typed into the Import dialog) or a `/h#c=<code>` link.
+ * The code is the only decryption secret, so we derive the storage id from it
+ * locally and only ever send that hash to the server — never the code itself.
+ */
+function readHandoffCode(input: string): string | null {
+  const hashIndex = input.indexOf("#");
+  if (hashIndex >= 0) {
+    const fromFragment = parseHandoffFragment(input.slice(hashIndex));
+    if (fromFragment) return fromFragment;
+  }
+  return normalizeHandoffCode(input);
+}
+
+async function importHandoff(code: string): Promise<ImportResult> {
+  const storageId = await createHandoffStorageId(code);
+  let res: Response;
+  try {
+    res = await fetch(`/api/handoff?id=${encodeURIComponent(storageId)}`);
+  } catch {
+    return { ok: false, error: "fetch-failed" };
+  }
+  // 404 is the one-time/expired/not-found outcome; the server deletes the
+  // object on first successful read, so a second open lands here too.
+  if (res.status === 404) return { ok: false, error: "handoff-gone" };
+  if (!res.ok) return { ok: false, error: "fetch-failed" };
+
+  const body = (await res.json().catch(() => null)) as
+    | { ciphertext?: unknown; iv?: unknown; salt?: unknown }
+    | null;
+  if (
+    !body ||
+    typeof body.ciphertext !== "string" ||
+    typeof body.iv !== "string" ||
+    typeof body.salt !== "string"
+  ) {
+    return { ok: false, error: "handoff-gone" };
+  }
+
+  const canvas = await decryptHandoff(body.ciphertext, code, body.iv, body.salt);
+  return canvas ? { ok: true, canvas } : { ok: false, error: "handoff-gone" };
 }
 
 export async function fetchStoredCanvas(id: string): Promise<ImportResult> {
