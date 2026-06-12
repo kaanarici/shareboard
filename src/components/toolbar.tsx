@@ -224,6 +224,7 @@ export function Toolbar({
                   placeholder="Your name"
                   value={settingsName}
                   onChange={(e) => setSettingsName(e.target.value)}
+                  autoCapitalize="words"
                   className="setup-dialog-tile-input"
                 />
               </div>
@@ -243,6 +244,10 @@ export function Toolbar({
                     placeholder="https://x.com/username"
                     value={settingsX}
                     onChange={(e) => setSettingsX(e.target.value)}
+                    inputMode="url"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
                     className="setup-dialog-tile-input"
                   />
                 </div>
@@ -252,6 +257,10 @@ export function Toolbar({
                     placeholder="https://instagram.com/username"
                     value={settingsIg}
                     onChange={(e) => setSettingsIg(e.target.value)}
+                    inputMode="url"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
                     className="setup-dialog-tile-input"
                   />
                 </div>
@@ -261,6 +270,10 @@ export function Toolbar({
                     placeholder="https://linkedin.com/in/username"
                     value={settingsLi}
                     onChange={(e) => setSettingsLi(e.target.value)}
+                    inputMode="url"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
                     className="setup-dialog-tile-input"
                   />
                 </div>
@@ -279,6 +292,9 @@ export function Toolbar({
                   value={settingsKey}
                   onChange={(e) => setSettingsKey(sanitizeOpenaiApiKeyInput(e.target.value))}
                   autoComplete="off"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
                   className="setup-dialog-tile-input setup-dialog-tile-input--masked"
                 />
                 {isPlausibleOpenaiApiKey(settingsKey) && (

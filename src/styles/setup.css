@@ -107,6 +107,20 @@
   padding: 0;
 }
 
+/* iOS zooms the whole page when a focused input's font-size is under 16px.
+ * Every text field gets >=16px on small screens — the single highest-impact
+ * mobile-form fix there is. */
+@media (max-width: 767px) {
+  input[type="text"],
+  input[type="url"],
+  input[type="password"],
+  input[type="search"],
+  input:not([type]),
+  textarea {
+    font-size: 1rem;
+  }
+}
+
 .setup-dialog-tile-input::placeholder {
   color: rgba(10, 10, 10, 0.4);
 }

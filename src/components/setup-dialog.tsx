@@ -64,6 +64,8 @@ export function SetupCards({ onComplete }: { onComplete: () => void }) {
             value={name}
             onChange={(e) => setNameValue(e.target.value)}
             autoFocus
+            enterKeyHint="next"
+            autoCapitalize="words"
             {...ignoreAttrs}
             className="setup-dialog-tile-input"
           />
@@ -84,6 +86,11 @@ export function SetupCards({ onComplete }: { onComplete: () => void }) {
                 placeholder="https://x.com/username"
                 value={xUrl}
                 onChange={(e) => setXUrl(e.target.value)}
+                inputMode="url"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                enterKeyHint="next"
                 {...ignoreAttrs}
                 className="setup-dialog-tile-input"
               />
@@ -94,6 +101,11 @@ export function SetupCards({ onComplete }: { onComplete: () => void }) {
                 placeholder="https://www.instagram.com/username/"
                 value={instagramUrl}
                 onChange={(e) => setInstagramUrl(e.target.value)}
+                inputMode="url"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                enterKeyHint="next"
                 {...ignoreAttrs}
                 className="setup-dialog-tile-input"
               />
@@ -104,6 +116,11 @@ export function SetupCards({ onComplete }: { onComplete: () => void }) {
                 placeholder="https://www.linkedin.com/in/username/"
                 value={linkedinUrl}
                 onChange={(e) => setLinkedinUrl(e.target.value)}
+                inputMode="url"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                enterKeyHint="next"
                 {...ignoreAttrs}
                 className="setup-dialog-tile-input"
               />
@@ -122,6 +139,10 @@ export function SetupCards({ onComplete }: { onComplete: () => void }) {
               placeholder="sk-..."
               value={key}
               onChange={(e) => setKeyValue(sanitizeOpenaiApiKeyInput(e.target.value))}
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              enterKeyHint="done"
               {...ignoreAttrs}
               className="setup-dialog-tile-input setup-dialog-tile-input--masked"
             />

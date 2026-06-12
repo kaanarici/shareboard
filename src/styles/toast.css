@@ -1,19 +1,24 @@
-/* Sonner toaster — match board carousel nav pill (.board-nav-pill): 44px × pill */
+/* Sonner toaster — match board carousel nav pill (.board-nav-pill): 44px pill
+ * for one-liners, wrapping into a rounded rect for longer messages. Never
+ * wider than the viewport. */
 [data-sonner-toaster] {
-  --width: 400px !important;
+  --width: min(400px, calc(100vw - 2rem)) !important;
 }
 [data-sonner-toaster] [data-sonner-toast] {
-  width: auto !important;
+  width: fit-content !important;
   min-width: 0 !important;
-  white-space: nowrap !important;
-  --border-radius: 999px;
-  border-radius: 999px !important;
-  height: 44px;
+  max-width: min(400px, calc(100vw - 2rem)) !important;
+  --border-radius: 22px;
+  border-radius: 22px !important;
+  height: auto;
   min-height: 44px;
   box-sizing: border-box;
 }
+[data-sonner-toaster] [data-sonner-toast] [data-content] {
+  text-wrap: pretty;
+}
 [data-sonner-toaster] [data-sonner-toast][data-styled="true"] {
-  padding: 0 16px !important;
+  padding: 10px 16px !important;
 }
 
 /* Repeat notify — red corner badge (class + --sb-badge-count from notify()) */
