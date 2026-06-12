@@ -18,7 +18,11 @@ import {
   Pencil,
   FilePlus,
   ClipboardPaste,
+  Library,
+  FolderOpen,
+  Bookmark,
 } from "lucide-react";
+import { buildBookmarklet } from "@/lib/bookmarklet";
 import { copyText } from "@/lib/clipboard";
 import { notify } from "@/lib/toast";
 import { X as XIcon } from "@/components/ui/svgs/x";
@@ -27,6 +31,15 @@ import { Linkedin } from "@/components/ui/svgs/linkedin";
 import { PageNav } from "@/components/page-nav";
 import { ActionFan, type ActionFanItem } from "@/components/action-fan";
 import type { BoardHistoryEntry } from "@/lib/store";
+import type { LibraryBoardMeta } from "@/lib/local-draft";
+
+function formatSavedAt(savedAt: number): string {
+  return new Date(savedAt).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
 
 export function Toolbar({
   hasItems,
@@ -36,6 +49,7 @@ export function Toolbar({
   pageCount,
   activePage,
   history,
+  libraryBoards,
   openingEntryId,
   onChangePage,
   onAddFile,
@@ -44,6 +58,9 @@ export function Toolbar({
   onGenerate,
   onShare,
   onNewBoard,
+  onSaveToLibrary,
+  onOpenLibraryBoard,
+  onDeleteLibraryBoard,
   onOpenHistoryEntry,
   onRemoveHistoryEntry,
 }: {
@@ -54,6 +71,7 @@ export function Toolbar({
   pageCount: number;
   activePage: number;
   history: BoardHistoryEntry[];
+  libraryBoards: LibraryBoardMeta[];
   openingEntryId: string | null;
   onChangePage: (next: number) => void;
   onAddFile: (file: File) => void;
@@ -62,6 +80,9 @@ export function Toolbar({
   onGenerate: () => void;
   onShare: () => void;
   onNewBoard: () => void;
+  onSaveToLibrary: () => void;
+  onOpenLibraryBoard: (id: string) => void;
+  onDeleteLibraryBoard: (id: string) => void;
   onOpenHistoryEntry: (entry: BoardHistoryEntry) => void;
   onRemoveHistoryEntry: (entry: BoardHistoryEntry) => void;
 }) {
@@ -88,6 +109,16 @@ export function Toolbar({
   const [settingsIg, setSettingsIg] = useState("");
   const [settingsLi, setSettingsLi] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
+  const bookmarkletRef = useRef<HTMLAnchorElement>(null);
+
+  // React 19 sanitizes `javascript:` URLs out of href props, but a bookmarklet
+  // only works if the anchor carries that real URL for the user to drag onto
+  // their bookmarks bar — so set it via setAttribute once the popover mounts.
+  useEffect(() => {
+    const el = bookmarkletRef.current;
+    if (!settingsOpen || !el) return;
+    el.setAttribute("href", buildBookmarklet(window.location.origin));
+  }, [settingsOpen]);
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -262,6 +293,45 @@ export function Toolbar({
               </div>
             </div>
 
+            <div className="setup-dialog-tile">
+              <span className="setup-dialog-tile-label">
+                Save to Shareboard
+                <span className="setup-dialog-tile-label-muted">(bookmarklet)</span>
+              </span>
+              <div className="bookmarklet-row">
+                {/* href is set imperatively (see effect above) to dodge React's
+                    javascript:-URL sanitizer; preventDefault so clicking it in
+                    the app does nothing — it's meant to be dragged. */}
+                <a
+                  ref={bookmarkletRef}
+                  href="#"
+                  draggable
+                  onClick={(e) => e.preventDefault()}
+                  className="bookmarklet-chip"
+                >
+                  <Bookmark className="h-4 w-4 shrink-0" aria-hidden />
+                  Save to Shareboard
+                </a>
+                <button
+                  type="button"
+                  className="board-history-action"
+                  aria-label="Copy bookmarklet"
+                  title="Copy bookmarklet"
+                  onClick={async () => {
+                    const ok = await copyText(buildBookmarklet(window.location.origin));
+                    if (ok) notify.success("Bookmarklet copied");
+                    else notify.error("Couldn't copy bookmarklet");
+                  }}
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <span className="bookmarklet-hint">
+                Drag to your bookmarks bar, then click it on any page to send the
+                title, link, and any selected text here.
+              </span>
+            </div>
+
             <Button
               onClick={saveSettings}
               className="h-11 w-full rounded-full text-[14px] font-medium bg-foreground hover:bg-foreground/90 text-background"
@@ -275,12 +345,22 @@ export function Toolbar({
             onToggle={() => toggleMenu("history")}
             onClose={closeMenu}
             ariaLabel="Recent boards"
-            popupClassName={`board-popover board-popover--history${
-              history.length === 0 ? " board-popover--history-empty" : ""
-            }`}
+            popupClassName="board-popover board-popover--history"
             triggerIcon={<Clock3 className="h-4 w-4 text-foreground/60" />}
           >
             <div className="board-popover-section board-history">
+              <button
+                type="button"
+                className="board-history-row board-history-new"
+                disabled={!hasItems}
+                onClick={() => {
+                  onSaveToLibrary();
+                  closeMenu();
+                }}
+              >
+                <Library className="h-4 w-4 text-foreground/60" aria-hidden />
+                <span className="board-history-title">Save to library</span>
+              </button>
               <button
                 type="button"
                 className="board-history-row board-history-new"
@@ -293,10 +373,11 @@ export function Toolbar({
                 <FilePlus className="h-4 w-4 text-foreground/60" aria-hidden />
                 <span className="board-history-title">New board</span>
               </button>
-              {history.length === 0 ? (
-                <div className="board-history-empty">Recent boards appear here.</div>
+              {history.length === 0 && libraryBoards.length === 0 ? (
+                <div className="board-history-empty">Saved and shared boards appear here.</div>
               ) : (
-                history.map((entry) => {
+                <>
+                  {history.map((entry) => {
                   const canEdit = entry.kind === "tiny" || !!entry.deleteToken;
                   const isOpening = openingEntryId === entry.id;
                   const removeTooltip = entry.deleteToken
@@ -374,7 +455,53 @@ export function Toolbar({
                       </div>
                     </div>
                   );
-                })
+                })}
+                  {libraryBoards.length > 0 && (
+                    <>
+                      <div className="board-history-group-label">Saved on this device</div>
+                      {libraryBoards.map((board) => (
+                        <div className="board-history-row" key={board.id}>
+                          <button
+                            type="button"
+                            className="board-history-main"
+                            onClick={() => {
+                              onOpenLibraryBoard(board.id);
+                              closeMenu();
+                            }}
+                          >
+                            <span className="board-history-title">{board.name}</span>
+                            <span className="board-history-subtitle">
+                              Saved {formatSavedAt(board.savedAt)}
+                            </span>
+                          </button>
+                          <div className="board-history-actions">
+                            <button
+                              type="button"
+                              className="board-history-action"
+                              aria-label={`Open ${board.name}`}
+                              title="Open"
+                              onClick={() => {
+                                onOpenLibraryBoard(board.id);
+                                closeMenu();
+                              }}
+                            >
+                              <FolderOpen className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              className="board-history-action"
+                              aria-label={`Delete ${board.name}`}
+                              title="Delete saved board"
+                              onClick={() => onDeleteLibraryBoard(board.id)}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </>
               )}
             </div>
           </ToolbarMenu>

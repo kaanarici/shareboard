@@ -541,15 +541,6 @@
   width: min(100vw - 2rem, 19rem);
 }
 
-.board-popover--history-empty {
-  width: auto;
-}
-
-.board-popover--history-empty .board-history-empty {
-  padding: 0.5rem 0.75rem;
-  white-space: nowrap;
-}
-
 .board-popover-section {
   display: flex;
   flex-direction: column;
@@ -632,6 +623,18 @@
   padding: 0.75rem 0.875rem;
   font-size: 0.8125rem;
   color: rgba(10, 10, 10, 0.55);
+}
+
+/* Section heading above the on-device library group. */
+.board-history-group-label {
+  padding: 0.5rem 0.625rem 0.25rem;
+  margin-top: 0.125rem;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: rgba(10, 10, 10, 0.42);
 }
 
 .board-history-row {
@@ -731,6 +734,42 @@
 .board-history-action:disabled {
   opacity: 0.35;
   cursor: not-allowed;
+}
+
+/* ─── Bookmarklet capture (settings) ─────────────────────────────────── */
+
+.bookmarklet-row {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.bookmarklet-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4375rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0.5rem 0.875rem;
+  border-radius: 999px;
+  background-color: var(--foreground);
+  color: var(--background);
+  font-size: 0.8125rem;
+  font-weight: 550;
+  text-decoration: none;
+  cursor: grab;
+  user-select: none;
+}
+
+.bookmarklet-chip:active {
+  cursor: grabbing;
+}
+
+.bookmarklet-hint {
+  font-size: 0.71875rem;
+  line-height: 1.4;
+  color: rgba(10, 10, 10, 0.52);
 }
 
 /* ─── Locked board PIN entry ────────────────────────────────────────── */

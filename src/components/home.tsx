@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useMemo, useEffect } from "react";
+import { lazy, Suspense, useState, useCallback, useRef, useMemo, useEffect } from "react";
 import { useMountEffect } from "@/lib/use-mount-effect";
 import { nanoid } from "nanoid";
 import { useNavigate, useSearch } from "@tanstack/react-router";
@@ -6,7 +6,6 @@ import { notify, notifyProgress, notifyWithUndo } from "@/lib/toast";
 import { Canvas } from "@/components/canvas";
 import { Toolbar } from "@/components/toolbar";
 import { SetupCards } from "@/components/setup-dialog";
-import { LockedShareDialog } from "@/components/locked-share-dialog";
 import { BoardCarousel } from "@/components/board-carousel";
 import { Toaster } from "@/components/ui/sonner";
 import {
@@ -20,7 +19,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { AnimatePresence, motion } from "motion/react";
-import { Check, Copy, Download, Loader2, Save, Share2 } from "lucide-react";
+import { Check, Copy, Download, Loader2, QrCode, Save, Share2 } from "lucide-react";
 import {
   addItemWithSpillToPages,
   duplicateItemWithSpillToPages,
@@ -34,12 +33,20 @@ import {
 import { getApiKey, isSetup, useSyncedSetting } from "@/lib/store";
 import {
   clearLocalDraft,
+  deleteLibraryBoard,
   draftLayoutSignature,
   draftSignature,
+  listLibraryBoards,
   loadLocalDraft,
+  openLibraryBoard,
+  saveBoardToLibrary,
   saveLocalDraft,
+  type LibraryBoardMeta,
 } from "@/lib/local-draft";
+import { getBoardTitle } from "@/lib/share-prep";
 import { detectPlatform, isValidUrl } from "@/lib/platforms";
+import { resolveShareIntake } from "@/lib/share-intake";
+import { parseClipHash } from "@/lib/bookmarklet";
 import { estimateMaxRowsFromViewport } from "@/lib/tile-specs";
 import type {
   BoardPage,
@@ -58,6 +65,13 @@ import type { BoardOrigin } from "@/lib/board-origin";
 import { useShareFlows } from "@/components/use-share-flows";
 import { importFromUrl } from "@/lib/board-import";
 import { sanitizeGeneration } from "@/lib/canvas-sanitize";
+
+const LockedShareDialog = lazy(() =>
+  import("@/components/locked-share-dialog").then((module) => ({ default: module.LockedShareDialog })),
+);
+
+// Keep uqr out of the eager bundle — it only loads when the share dialog opens.
+const QrCodeView = lazy(() => import("@/components/qr-code"));
 
 function findSvgSource(html: string | null, text: string | null) {
   return html?.match(/<svg[\s\S]*<\/svg>/i)?.[0] ?? (text?.startsWith("<svg") ? text : null);
@@ -163,6 +177,12 @@ function revokeImagePreviews(items: readonly CanvasItem[]) {
   }
 }
 
+function defaultLibraryName(pages: BoardPage[]): string {
+  const title = getBoardTitle(pages);
+  if (title && title !== "Untitled board") return title;
+  return `Board ${new Date().toLocaleDateString()}`;
+}
+
 type SelectionEvent = { metaKey?: boolean; ctrlKey?: boolean };
 
 export function Home() {
@@ -185,12 +205,15 @@ export function Home() {
   const [pasteDialogOpen, setPasteDialogOpen] = useState(false);
   const [pasteInput, setPasteInput] = useState("");
   const [saveState, setSaveState] = useState<"saved" | "saving" | "save">("saved");
+  const [libraryBoards, setLibraryBoards] = useState<LibraryBoardMeta[]>([]);
   const pendingActivePageRef = useRef<number | null>(null);
   const pendingSelectedIdsRef = useRef<string[] | null>(null);
   const lastSavedSigRef = useRef<string>("");
   const lastSavedLayoutSigRef = useRef<string>("");
   const lockedDisposeRef = useRef<(() => void) | null>(null);
   const canvasClipboardRef = useRef<CanvasItem[]>([]);
+  const shareIngestedRef = useRef(false);
+  const clipIngestedRef = useRef(false);
   // Keep latest pages in a ref so the unmount blob-URL cleanup can walk them
   // without being a dep of the mount effect. Assignment during render is safe —
   // it doesn't trigger renders.
@@ -200,18 +223,30 @@ export function Home() {
   generationRef.current = generation;
   const boardOriginRef = useRef<BoardOrigin>({ kind: "draft" });
   boardOriginRef.current = boardOrigin;
+  // Latest-ref because restoreBoard/newBoard are defined before useShareFlows
+  // (which takes restoreBoard as a prop) but must drop the stale QR link.
+  const clearLastShareUrlRef = useRef<() => void>(() => {});
 
-  const restoreBoard = useCallback(
-    (canvas: SharedCanvasData, origin: BoardOrigin = { kind: "draft" }) => {
+  // Shared restore side effects: drop the locked board, the stale QR link, and
+  // the current selection, then swap in the new pages/generation/origin.
+  const applyRestoredBoard = useCallback(
+    (nextPages: BoardPage[], nextGeneration: GenerateResponse | null, origin: BoardOrigin) => {
       lockedDisposeRef.current?.();
       lockedDisposeRef.current = null;
-      setPages(editorPagesFromCanvas(canvas));
-      setGeneration(canvas.generation ?? null);
+      clearLastShareUrlRef.current();
+      setPages(nextPages);
+      setGeneration(nextGeneration);
       setBoardOrigin(origin);
       setSelectedIds([]);
       navigate({ search: {}, replace: false });
     },
     [navigate],
+  );
+
+  const restoreBoard = useCallback(
+    (canvas: SharedCanvasData, origin: BoardOrigin = { kind: "draft" }) =>
+      applyRestoredBoard(editorPagesFromCanvas(canvas), canvas.generation ?? null, origin),
+    [applyRestoredBoard],
   );
 
   const openImportDialog = useCallback(() => {
@@ -236,6 +271,7 @@ export function Home() {
     };
     lockedDisposeRef.current?.();
     lockedDisposeRef.current = null;
+    clearLastShareUrlRef.current();
     setPages([emptyBoardPage()]);
     setGeneration(null);
     setBoardOrigin({ kind: "draft" });
@@ -246,6 +282,45 @@ export function Home() {
       setGeneration(prev.generation);
       setBoardOrigin(prev.origin);
     });
+  }, []);
+
+  const saveToLibrary = useCallback(async () => {
+    const p = pagesRef.current;
+    const hasContent = p.some((page) => page.items.some((item) => item.type !== "board_summary"));
+    if (!hasContent) return;
+    const suggested = defaultLibraryName(p);
+    const input = window.prompt("Name this board", suggested);
+    if (input === null) return;
+    const name = input.trim() || suggested;
+    try {
+      const { saved, evicted } = await saveBoardToLibrary(name, p, generationRef.current);
+      setLibraryBoards(await listLibraryBoards());
+      notify.success(
+        evicted.length > 0
+          ? `Saved "${saved.name}" — removed oldest "${evicted[0]!.name}" (library full)`
+          : `Saved "${saved.name}" to library`,
+      );
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Couldn't save to library");
+    }
+  }, []);
+
+  const openLibraryEntry = useCallback(
+    async (id: string) => {
+      const snapshot = await openLibraryBoard(id);
+      if (!snapshot) {
+        notify.error("Couldn't open that saved board");
+        return;
+      }
+      applyRestoredBoard(snapshot.pages, snapshot.generation, { kind: "draft" });
+      notify.success("Board opened");
+    },
+    [applyRestoredBoard],
+  );
+
+  const deleteLibraryEntry = useCallback(async (id: string) => {
+    await deleteLibraryBoard(id);
+    setLibraryBoards(await listLibraryBoards());
   }, []);
 
   const importFromInput = useCallback(async () => {
@@ -278,6 +353,8 @@ export function Home() {
     shareState,
     manualShareUrl,
     setManualShareUrl,
+    lastShareUrl,
+    clearLastShareUrl,
     lockedShareOpen,
     setLockedShareOpen,
     lockedShareBusy,
@@ -295,6 +372,7 @@ export function Home() {
     onRestoreBoard: restoreBoard,
     onOriginChange: setBoardOrigin,
   });
+  clearLastShareUrlRef.current = clearLastShareUrl;
 
   const activePage = Math.max(0, Math.min(urlPage - 1, pages.length - 1));
 
@@ -440,6 +518,10 @@ export function Home() {
       cancelled = true;
       revokeDraftImagePreviews(pagesRef.current);
     };
+  });
+
+  useMountEffect(() => {
+    void listLibraryBoards().then(setLibraryBoards);
   });
 
   /** Patch page at `index` with a partial update. */
@@ -1123,6 +1205,69 @@ export function Home() {
     };
   });
 
+  // PWA share-target intake: when the OS share sheet opens the board with
+  // title/text/url params, drop the shared content onto the canvas as a URL or
+  // note, then strip the params so a refresh doesn't re-ingest. Waits for setup
+  // to complete and runs at most once.
+  useEffect(() => {
+    if (!mounted || needsSetup) return;
+    const { title, text, url } = search;
+    if (!title && !text && !url) {
+      // Params cleared (or never present): re-arm for the next share-target
+      // navigation into this already-running window.
+      shareIngestedRef.current = false;
+      return;
+    }
+    if (shareIngestedRef.current) return;
+    shareIngestedRef.current = true;
+
+    const intake = resolveShareIntake({ title, text, url });
+    if (intake?.kind === "url") {
+      void addUrl(intake.url);
+      notify.success("URL added");
+    } else if (intake?.kind === "note") {
+      addNote(intake.text);
+      notify.success("Note added");
+    }
+
+    navigate({ search: {}, replace: true });
+  }, [mounted, needsSetup, search, addUrl, addNote, navigate]);
+
+  // Bookmarklet capture intake — the iOS-Safari/Firefox answer to the PWA
+  // share-target. A bookmarklet opens the board with the captured page in the
+  // URL *fragment* (#clip=...), never query params, so selected text never
+  // reaches the server or its logs. Decode it onto the canvas, then strip the
+  // hash. The fragment lives outside router state, so read window.location and
+  // clear it with replaceState directly instead of going through navigate.
+  useEffect(() => {
+    if (!mounted || needsSetup) return;
+
+    const ingestClip = () => {
+      const params = parseClipHash(window.location.hash);
+      if (!params) {
+        clipIngestedRef.current = false; // re-arm for the next capture
+        return;
+      }
+      if (clipIngestedRef.current) return;
+      clipIngestedRef.current = true;
+
+      const intake = resolveShareIntake(params);
+      if (intake?.kind === "url") {
+        void addUrl(intake.url);
+        notify.success("URL added");
+      } else if (intake?.kind === "note") {
+        addNote(intake.text);
+        notify.success("Note added");
+      }
+
+      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    };
+
+    ingestClip();
+    window.addEventListener("hashchange", ingestClip);
+    return () => window.removeEventListener("hashchange", ingestClip);
+  }, [mounted, needsSetup, addUrl, addNote]);
+
   if (!mounted) return null;
 
   return (
@@ -1195,6 +1340,17 @@ export function Home() {
           )}
           <span>{shareState === "copied" ? "Copied" : "Share"}</span>
         </button>
+        {lastShareUrl && (
+          <button
+            type="button"
+            className="board-notch-action"
+            onClick={() => setManualShareUrl(lastShareUrl)}
+            aria-label="Show QR code for the last shared link"
+            title="Show QR code"
+          >
+            <QrCode className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
 
       <BoardCarousel
@@ -1230,6 +1386,7 @@ export function Home() {
         pageCount={pages.length}
         activePage={activePage}
         history={history}
+        libraryBoards={libraryBoards}
         openingEntryId={openingEntryId}
         onChangePage={setActivePage}
         onAddFile={(file) => void addFile(file)}
@@ -1238,18 +1395,25 @@ export function Home() {
         onGenerate={generate}
         onShare={() => setLockedShareOpen(true)}
         onNewBoard={newBoard}
+        onSaveToLibrary={() => void saveToLibrary()}
+        onOpenLibraryBoard={(id) => void openLibraryEntry(id)}
+        onDeleteLibraryBoard={(id) => void deleteLibraryEntry(id)}
         onOpenHistoryEntry={openHistoryEntry}
         onRemoveHistoryEntry={removeHistoryEntry}
       />
 
       {needsSetup && <SetupCards onComplete={() => setNeedsSetup(false)} />}
 
-      <LockedShareDialog
-        open={lockedShareOpen}
-        busy={lockedShareBusy}
-        onOpenChange={setLockedShareOpen}
-        onCreate={shareLocked}
-      />
+      {lockedShareOpen && (
+        <Suspense fallback={null}>
+          <LockedShareDialog
+            open={lockedShareOpen}
+            busy={lockedShareBusy}
+            onOpenChange={setLockedShareOpen}
+            onCreate={shareLocked}
+          />
+        </Suspense>
+      )}
 
       <Dialog
         open={deleteDialogIds !== null}
@@ -1375,9 +1539,16 @@ export function Home() {
           <DialogHeader>
             <DialogTitle>Share link</DialogTitle>
             <DialogDescription>
-              Your board was created, but the browser blocked automatic clipboard access.
+              Scan the QR code to open this board on another device, or copy the link to send it anywhere.
             </DialogDescription>
           </DialogHeader>
+          {manualShareUrl && (
+            <Suspense
+              fallback={<div className="setup-dialog-tile mx-auto" style={{ width: 216, height: 216 }} />}
+            >
+              <QrCodeView url={manualShareUrl} />
+            </Suspense>
+          )}
           <input
             readOnly
             value={manualShareUrl}

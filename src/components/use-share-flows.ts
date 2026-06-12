@@ -14,7 +14,7 @@ import {
   saveLastSharedBoard,
   type BoardHistoryEntry,
 } from "@/lib/store";
-import { fetchStoredCanvas, unlockSharedBoard } from "@/lib/board-import";
+import { fetchStoredCanvas } from "@/lib/board-import";
 import { createHistoryEntry, prepareLockedShare, preparePublicShare } from "@/lib/share-workflow";
 import { useIsMobile } from "@/lib/use-is-mobile";
 import { notify } from "@/lib/toast";
@@ -46,6 +46,7 @@ export function useShareFlows({
 }) {
   const [shareState, setShareState] = useState<"idle" | "sharing" | "copied">("idle");
   const [manualShareUrl, setManualShareUrl] = useState("");
+  const [lastShareUrl, setLastShareUrl] = useState("");
   const [lockedShareOpen, setLockedShareOpen] = useState(false);
   const [lockedShareBusy, setLockedShareBusy] = useState(false);
   const [history, setHistory] = useState<BoardHistoryEntry[]>([]);
@@ -71,6 +72,7 @@ export function useShareFlows({
 
   const finishShare = useCallback(
     async (shareUrl: string) => {
+      setLastShareUrl(shareUrl);
       if (await copyText(shareUrl)) {
         markShareCopied();
         notify.success("Link copied to clipboard");
@@ -140,6 +142,7 @@ export function useShareFlows({
       onOriginChange({ kind: "stored", id, deleteToken });
       setHistory(getBoardHistory());
       if (draft.isReplace) {
+        setLastShareUrl(shareUrl);
         notify.success("Updated link copied");
         if (await copyText(shareUrl)) markShareCopied();
         else {
@@ -191,6 +194,7 @@ export function useShareFlows({
         setHistory(getBoardHistory());
         setLockedShareOpen(false);
         if (draft.isReplace) {
+          setLastShareUrl(shareUrl);
           notify.success("Updated link copied");
           if (await copyText(shareUrl)) markShareCopied();
           else {
@@ -260,6 +264,7 @@ export function useShareFlows({
           if (pin !== null) notify.error("Pin must be 6 digits");
           return;
         }
+        const { unlockSharedBoard } = await import("@/lib/board-import");
         const result = await unlockSharedBoard(entry.id, pin.trim());
         if (!result.ok) {
           notify.error(
@@ -299,14 +304,20 @@ export function useShareFlows({
       const last = getLastSharedBoard();
       if (last?.id === entry.id) clearLastSharedBoard();
     }
+    setLastShareUrl((current) => (current === entry.shareUrl ? "" : current));
     removeBoardHistoryEntry(entry.id);
     setHistory(getBoardHistory());
   }, []);
+
+  // The QR/last-share affordance must not outlive the board it points at.
+  const clearLastShareUrl = useCallback(() => setLastShareUrl(""), []);
 
   return {
     shareState,
     manualShareUrl,
     setManualShareUrl,
+    lastShareUrl,
+    clearLastShareUrl,
     lockedShareOpen,
     setLockedShareOpen,
     lockedShareBusy,
