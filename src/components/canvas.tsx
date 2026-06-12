@@ -349,7 +349,7 @@ export function Canvas({
         />
       )}
       {item.type === "note" && (
-        <Suspense fallback={<div className={`flex h-full flex-col bg-card p-4 ${readonly ? "" : "cursor-text"}`} />}>
+        <Suspense fallback={<div className={`flex h-full flex-col bg-card p-4 ${readonly ? "" : "cursor-grab"}`} />}>
           <NoteCard
             item={item}
             summary={getSummary(item.id)}
@@ -369,9 +369,11 @@ export function Canvas({
     </>
   );
 
+  // Top padding clears the fixed board-notch (32px tall, flush to the top-right
+  // corner). Without it the top-right grid row renders partially under the notch.
   const containerClass = isMobile
-    ? "flex-1 w-full min-h-0 min-w-0 p-3 pb-24 overflow-y-auto overflow-x-hidden relative"
-    : "flex-1 w-full min-h-0 min-w-0 p-3 pb-20 md:p-5 md:pb-24 overflow-hidden relative";
+    ? "flex-1 w-full min-h-0 min-w-0 px-3 pt-3 pb-24 overflow-y-auto overflow-x-hidden relative"
+    : "flex-1 w-full min-h-0 min-w-0 px-3 pt-11 pb-20 md:px-5 md:pt-11 md:pb-24 overflow-hidden relative";
 
   return (
     <div
@@ -481,9 +483,9 @@ export function Canvas({
                           onRemove(item.id);
                         }}
                         aria-label="Remove item"
-                        className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md"
+                        className="card-close-btn card-close-btn--touch"
                       >
-                        <X className="h-3.5 w-3.5" strokeWidth={2.5} />
+                        <X className="card-close-icon" strokeWidth={2.25} />
                       </button>
                     </div>
                   )}
@@ -549,7 +551,7 @@ export function Canvas({
                 }}
               >
                 {!readonly && onRemove && (
-                  <div className="grid-card-close absolute top-2.5 right-2.5 z-20 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200 grid-interacting-fade">
+                  <div className="grid-card-close absolute top-2 right-2 z-20 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150 grid-interacting-fade">
                     <button
                       type="button"
                       onClick={(e) => {
@@ -557,9 +559,9 @@ export function Canvas({
                         onRemove(item.id);
                       }}
                       aria-label="Remove item"
-                      className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-md transition-all hover:bg-black/60 hover:scale-110"
+                      className="card-close-btn"
                     >
-                      <X className="h-3.5 w-3.5" strokeWidth={2.5} />
+                      <X className="card-close-icon" strokeWidth={2.25} />
                     </button>
                   </div>
                 )}

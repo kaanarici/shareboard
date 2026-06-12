@@ -88,34 +88,135 @@ body.grid-interacting .grid-interacting-fade {
   filter: grayscale(1);
 }
 
+/*
+ * A note body is a drag surface until it's actively editing. The contenteditable
+ * defaults to a text caret on hover, which reads as "click to type" and fights
+ * the grab affordance — so while not editing we force the move cursor onto the
+ * editor itself. The wrapper flips to [data-editing="true"] on focus, restoring
+ * the native text caret for actual editing.
+ */
+.react-grid-item [data-editing] .ProseMirror,
+.react-grid-item [data-editing] .ProseMirror * {
+  cursor: grab;
+}
+.react-grid-item [data-editing="true"] .ProseMirror,
+.react-grid-item [data-editing="true"] .ProseMirror * {
+  cursor: auto;
+}
+.react-grid-item [data-editing="true"] .ProseMirror {
+  cursor: text;
+}
+body.grid-interacting .react-grid-item [data-editing] .ProseMirror,
+body.grid-interacting .react-grid-item [data-editing] .ProseMirror * {
+  cursor: grabbing !important;
+}
+
+/* ─── Card close button + resize handle — one light-mode visual family ─────
+ * Both controls share the debossed-tile language: frosted white fill, a single
+ * hairline border, and a soft ambient shadow. The close button is a circle; the
+ * resize handle is a corner grip whose outer curve is concentric with the card's
+ * 12px (rounded-lg) corner. */
+
+.card-close-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 999px;
+  background-color: rgba(255, 255, 255, 0.86);
+  color: rgba(10, 10, 10, 0.62);
+  cursor: pointer;
+  backdrop-filter: blur(12px) saturate(1.1);
+  -webkit-backdrop-filter: blur(12px) saturate(1.1);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    0 4px 12px -6px rgba(0, 0, 0, 0.16);
+  transition: background-color 0.12s ease, color 0.12s ease,
+    border-color 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease;
+}
+
+.card-close-btn:hover {
+  background-color: #ffffff;
+  color: var(--foreground);
+  border-color: rgba(0, 0, 0, 0.12);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.07),
+    0 6px 16px -6px rgba(0, 0, 0, 0.2);
+}
+
+.card-close-btn:active {
+  transform: scale(0.92);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    0 2px 6px -3px rgba(0, 0, 0, 0.16);
+}
+
+.card-close-icon {
+  width: 14px;
+  height: 14px;
+  /* Optical centering: the X glyph's visual mass sits a hair low-left, so a
+   * sub-pixel nudge lands it dead-center in the circle. */
+  transform: translate(0.2px, -0.2px);
+}
+
+.card-close-btn--touch {
+  width: 30px;
+  height: 30px;
+}
+
+.card-close-btn--touch .card-close-icon {
+  width: 15px;
+  height: 15px;
+}
+
 .react-grid-item > .react-resizable-handle {
   z-index: 40 !important;
-  width: 28px !important;
-  height: 28px !important;
+  width: 26px !important;
+  height: 26px !important;
   background-image: none !important;
   pointer-events: auto !important;
 }
 
+/*
+ * Concentric corner grip. The card corner is 12px; the grip's outer L sits
+ * inset 6px from each card edge, so its outer radius (6px) plus the inset (6px)
+ * tracks the 12px card corner exactly — the curves stay parallel. A faint white
+ * highlight under the stroke gives it the same lifted, hairline feel as the
+ * close button without a full chip.
+ */
 .react-grid-item > .react-resizable-handle::after {
   content: "";
   display: block !important;
   position: absolute;
-  right: 7px;
-  bottom: 7px;
-  width: 14px;
-  height: 14px;
-  border-right: 2px solid rgba(10, 10, 10, 0.42);
-  border-bottom: 2px solid rgba(10, 10, 10, 0.42);
-  border-radius: 0 0 14px 0;
+  right: 6px;
+  bottom: 6px;
+  width: 11px;
+  height: 11px;
+  border-right: 2px solid rgba(10, 10, 10, 0.34);
+  border-bottom: 2px solid rgba(10, 10, 10, 0.34);
+  border-radius: 0 0 6px 0;
   opacity: 0;
-  transform: scale(0.82);
-  transition: opacity 120ms ease, transform 120ms ease;
+  transform: scale(0.8);
+  transform-origin: bottom right;
+  transition: opacity 120ms ease, transform 120ms ease, border-color 120ms ease;
+}
+
+/* On card hover only the primary bottom-right grip appears — revealing all four
+ * corners + edges at once reads as visual noise. The other handles still light
+ * up on their own hover so resizing from any edge stays discoverable. */
+.react-grid-item:hover > .react-resizable-handle-se::after,
+.react-grid-item > .react-resizable-handle:hover::after,
+.react-grid-item.resizing > .react-resizable-handle::after {
+  opacity: 1;
+  transform: scale(1);
 }
 
 .react-grid-item > .react-resizable-handle:hover::after,
-.react-grid-item.resizing > .react-resizable-handle:hover::after {
-  opacity: 1;
-  transform: scale(1);
+.react-grid-item.resizing > .react-resizable-handle::after {
+  border-color: rgba(10, 10, 10, 0.55);
 }
 
 .react-grid-item > .react-resizable-handle.react-resizable-handle-se { cursor: se-resize !important; }

@@ -116,9 +116,9 @@ export function buildSpecList(
 export function estimateMaxRowsFromViewport(): number {
   if (typeof window === "undefined") return 24;
   const isLg = window.innerWidth >= LG_BREAKPOINT;
-  // Canvas padding: p-3 pb-20 md:p-5 md:pb-24 (side = 12/20, bottom = 80/96).
-  // Bottom is larger to reserve the fixed toolbar zone.
-  const padTop = isLg ? 20 : 12;
+  // Canvas padding: px-3 pt-11 pb-20 md:px-5 md:pt-11 md:pb-24.
+  // Top reserves the fixed board-notch (44px); bottom reserves the toolbar zone.
+  const padTop = isLg ? 44 : 12;
   const padBottom = isLg ? 96 : 80;
   const innerH = window.innerHeight - padTop - padBottom;
   return Math.max(4, Math.floor((innerH + MARGIN) / (ROW_HEIGHT + MARGIN)));

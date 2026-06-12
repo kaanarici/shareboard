@@ -430,7 +430,10 @@ export const AutoCanvas = forwardRef<HTMLDivElement, AutoCanvasProps>(function A
           dragConfig={{
             enabled: !readonly,
             bounded: !!pageHeight,
-            cancel: ".ProseMirror, input, textarea, [contenteditable=true], .grid-card-close, .grid-no-drag",
+            // Note editors only cancel the drag while actively editing (gated by
+            // [data-editing]); otherwise the note body is a drag surface so cards
+            // can be grabbed from anywhere. Other editable fields always cancel.
+            cancel: "input, textarea, [data-editing='true'] .ProseMirror, [data-editing='true'][contenteditable=true], .grid-card-close, .grid-no-drag",
           }}
           resizeConfig={{ enabled: !readonly, handles: ["se", "sw", "ne", "nw", "e", "w", "s", "n"] }}
           compactor={freePlacementCompactor}
