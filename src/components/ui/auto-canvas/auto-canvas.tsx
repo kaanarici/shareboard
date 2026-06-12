@@ -251,8 +251,18 @@ export const AutoCanvas = forwardRef<HTMLDivElement, AutoCanvasProps>(function A
   const pageHeight = maxRows && maxRows > 0
     ? maxRows * rowHeight + gap * Math.max(0, maxRows - 1)
     : undefined;
+  // Clip runaway content but leave 6px of slack on every side: the selection
+  // ring draws 4px outside a card, so clipping exactly at the grid bounds cut
+  // it off on edge tiles. Negative margin keeps the layout box unchanged.
   const boundedCanvasStyle = pageHeight
-    ? { height: pageHeight, minHeight: pageHeight, maxHeight: pageHeight, overflow: "hidden" }
+    ? {
+        height: pageHeight + 12,
+        minHeight: pageHeight + 12,
+        maxHeight: pageHeight + 12,
+        overflow: "hidden",
+        padding: 6,
+        margin: -6,
+      }
     : undefined;
   const setDragPreviewLayouts = useCallback((next: ResponsiveLayouts | null) => {
     if (sameLayouts(dragPreviewRef.current, next)) return;
