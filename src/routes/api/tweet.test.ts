@@ -46,7 +46,9 @@ describe("tweet route", () => {
     const response = await createTweetResponse("1234567890", async () => null);
 
     expect(response.status).toBe(404);
-    expect(response.headers.get("Cache-Control")).toBe(TWEET_CACHE_CONTROL);
+    // A miss must never be cached — a transiently-unavailable tweet would
+    // otherwise be pinned as "not found" for a day.
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(await response.json()).toEqual({ data: null });
   });
 });

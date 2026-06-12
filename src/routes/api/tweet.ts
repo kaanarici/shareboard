@@ -67,10 +67,15 @@ function normalizeTweet(tweet: TweetData): TweetData {
 
 export async function createTweetResponse(id: string, fetchTweet: TweetFetcher = fetchTweetWithBrowserUA) {
   const tweet = await fetchTweet(id);
+  if (!tweet) {
+    // Never cache a miss: a tweet can be transiently unavailable (rate limit,
+    // egress hiccup), and caching the 404 would pin "View on X" for a day.
+    return Response.json({ data: null }, { status: 404, headers: errorHeaders() });
+  }
   return Response.json(
-    { data: tweet ? normalizeTweet(tweet) : null },
+    { data: normalizeTweet(tweet) },
     {
-      status: tweet ? 200 : 404,
+      status: 200,
       headers: tweetHeaders(),
     }
   );

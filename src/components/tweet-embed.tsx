@@ -62,7 +62,7 @@ export function TweetEmbed({
         <div ref={contentRef} className="tweet-embed-container h-full w-full min-w-0">
           <Tweet
             id={id}
-            apiUrl={`/api/tweet?id=${encodeURIComponent(id)}`}
+            apiUrl={`/api/tweet?id=${encodeURIComponent(id)}&v=2`}
             fallback={<TweetSkeleton />}
             components={{
               TweetNotFound: ({ error }: { error?: { status?: number } }) => {
