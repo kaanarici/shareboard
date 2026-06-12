@@ -1,11 +1,12 @@
 
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import type { CanvasItem, ItemSummary } from "@/lib/types";
 import { PlatformIcon } from "./platform-icon";
-import { TweetEmbed } from "./tweet-embed";
 import { YouTubeEmbed } from "./youtube-embed";
 
 type UrlItem = Extract<CanvasItem, { type: "url" }>;
+
+const TweetEmbed = lazy(() => import("./tweet-embed").then((module) => ({ default: module.TweetEmbed })));
 
 export function UrlCard({
   item,
@@ -20,11 +21,13 @@ export function UrlCard({
 }) {
   if (item.platform === "twitter") {
     return (
-      <TweetEmbed
-        url={item.url}
-        interactionOverlay={!readonly}
-        onMeasure={onMeasureTweet}
-      />
+      <Suspense fallback={<TweetEmbedFallback />}>
+        <TweetEmbed
+          url={item.url}
+          interactionOverlay={!readonly}
+          onMeasure={onMeasureTweet}
+        />
+      </Suspense>
     );
   }
 
@@ -33,6 +36,15 @@ export function UrlCard({
   }
 
   return <OGCard item={item} summary={summary} />;
+}
+
+function TweetEmbedFallback() {
+  return (
+    <div
+      className="flex h-full min-h-0 w-full min-w-0 items-center justify-center overflow-hidden rounded-lg bg-white"
+      data-theme="light"
+    />
+  );
 }
 
 function OGCard({ item, summary }: { item: UrlItem; summary?: ItemSummary }) {

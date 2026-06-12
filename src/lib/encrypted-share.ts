@@ -1,10 +1,10 @@
 import { base64UrlToBytes, bytesToBase64Url } from "@/lib/base64url";
 import { sanitizePublicCanvasManifest } from "@/lib/canvas-sanitize";
+import { cleanPin } from "@/lib/locked-share-pin";
 import type { Canvas, EncryptedCanvasEnvelope, EncryptedShareImage } from "@/lib/types";
 
 export { base64UrlToBytes, bytesToBase64Url };
 
-export const LOCKED_SHARE_PIN_LENGTH = 6;
 export const LOCKED_SHARE_ITERATIONS = 100_000;
 
 type EncryptedBytes = {
@@ -29,14 +29,6 @@ const decoder = new TextDecoder();
 
 export function createLockedShareId() {
   return bytesToBase64Url(crypto.getRandomValues(new Uint8Array(18)));
-}
-
-export function cleanPin(value: string) {
-  return value.replace(/\D/g, "").slice(0, LOCKED_SHARE_PIN_LENGTH);
-}
-
-export function isCompletePin(value: string) {
-  return cleanPin(value).length === LOCKED_SHARE_PIN_LENGTH;
 }
 
 async function deriveKey(pin: string, salt: Uint8Array<ArrayBuffer>, iterations: number) {

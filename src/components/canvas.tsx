@@ -1,12 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { X } from "lucide-react";
 import type { CanvasItem, GenerateResponse, GridLayouts } from "@/lib/types";
 import { UrlCard } from "./url-card";
 import { ImageCard } from "./image-card";
 import { ImageLightbox } from "./image-lightbox";
 import { JsonCard } from "./json-card";
-import { NoteCard } from "./note-card";
-import { SummarySection } from "./summary-section";
 import {
   AutoCanvas,
   useAspectCache,
@@ -21,6 +19,9 @@ import {
 } from "@/lib/tile-specs";
 import { extractTweetId } from "@/lib/youtube";
 import { useIsMobile } from "@/lib/use-is-mobile";
+
+const NoteCard = lazy(() => import("./note-card").then((module) => ({ default: module.NoteCard })));
+const SummarySection = lazy(() => import("./summary-section").then((module) => ({ default: module.SummarySection })));
 
 /** localStorage key for the tweet aspect-ratio cache. Exported for tests only. */
 export const TWEET_ASPECT_STORAGE_KEY = "shareboard_tweet_aspects";
@@ -348,17 +349,21 @@ export function Canvas({
         />
       )}
       {item.type === "note" && (
-        <NoteCard
-          item={item}
-          summary={getSummary(item.id)}
-          readonly={readonly}
-          onUpdateText={onUpdateNoteText}
-        />
+        <Suspense fallback={<div className={`flex h-full flex-col bg-card p-4 ${readonly ? "" : "cursor-text"}`} />}>
+          <NoteCard
+            item={item}
+            summary={getSummary(item.id)}
+            readonly={readonly}
+            onUpdateText={onUpdateNoteText}
+          />
+        </Suspense>
       )}
       {item.type === "json" && <JsonCard item={item} summary={getSummary(item.id)} />}
       {item.type === "board_summary" && generation && (
         <div className="h-full w-full border border-border/40 bg-card rounded-lg p-5">
-          <SummarySection summary={generation.overall_summary} />
+          <Suspense fallback={<div className="flex h-full flex-col" />}>
+            <SummarySection summary={generation.overall_summary} />
+          </Suspense>
         </div>
       )}
     </>

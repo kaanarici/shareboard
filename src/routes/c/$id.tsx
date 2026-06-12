@@ -1,10 +1,9 @@
-import { useCallback } from "react";
+import { lazy, Suspense, useCallback } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { isLockedCanvasStub, type CanvasFetchResponse } from "@/lib/types";
 import { sanitizePublicCanvasManifest } from "@/lib/canvas-sanitize";
 import { SharedCanvas } from "@/components/shared-canvas";
-import { LockedCanvas } from "@/components/locked-canvas";
 import {
   SHARED_BOARD_LOADING_LABEL,
   SHARED_BOARD_NOT_FOUND_LABEL,
@@ -21,6 +20,10 @@ type SharedHeadData = {
   description?: string;
   previewUrl?: string;
 } | null;
+
+const LockedCanvas = lazy(() =>
+  import("@/components/locked-canvas").then((module) => ({ default: module.LockedCanvas })),
+);
 
 const getSharedHead = createServerFn({ method: "GET" })
   .inputValidator((data: unknown): { id: string } => {
@@ -121,7 +124,11 @@ function SharedPage() {
   }
   const { canvas } = state;
   if (isLockedCanvasStub(canvas)) {
-    return <LockedCanvas id={canvas.id} initialPageIndex={(search.page ?? 1) - 1} />;
+    return (
+      <Suspense fallback={<div className="locked-share-screen" />}>
+        <LockedCanvas id={canvas.id} initialPageIndex={(search.page ?? 1) - 1} />
+      </Suspense>
+    );
   }
   return <SharedCanvas canvas={canvas} initialPageIndex={(search.page ?? 1) - 1} />;
 }

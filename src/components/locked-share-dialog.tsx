@@ -13,7 +13,7 @@ import {
   LOCKED_SHARE_PIN_LENGTH,
   cleanPin,
   isCompletePin,
-} from "@/lib/encrypted-share";
+} from "@/lib/locked-share-pin";
 
 export function LockedShareDialog({
   open,

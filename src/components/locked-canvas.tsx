@@ -6,9 +6,8 @@ import { useMountEffect } from "@/lib/use-mount-effect";
 import {
   LOCKED_SHARE_PIN_LENGTH,
   cleanPin,
-  decryptLockedCanvas,
   isCompletePin,
-} from "@/lib/encrypted-share";
+} from "@/lib/locked-share-pin";
 import { isEncryptedCanvas, type Canvas } from "@/lib/types";
 
 export function LockedCanvas({
@@ -42,6 +41,7 @@ export function LockedCanvas({
       if (!res.ok) throw new Error("Unlock failed");
       const envelope = (await res.json().catch(() => null)) as unknown;
       if (!isEncryptedCanvas(envelope)) throw new Error("Unlock failed");
+      const { decryptLockedCanvas } = await import("@/lib/encrypted-share");
       const result = await decryptLockedCanvas(envelope, nextPin);
       disposeRef.current = result.dispose;
       setCanvas(result.canvas);

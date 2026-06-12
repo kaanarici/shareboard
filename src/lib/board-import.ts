@@ -1,5 +1,4 @@
 import { sanitizePublicCanvasManifest } from "@/lib/canvas-sanitize";
-import { decryptLockedCanvas } from "@/lib/encrypted-share";
 import { storedBoardFetchUrl } from "@/lib/shared-board";
 import { decodeTinyShare, readStoredShareId, readTinyPayloadFromUrl } from "@/lib/tiny-share";
 import { isEncryptedCanvas, type Canvas } from "@/lib/types";
@@ -75,6 +74,7 @@ export async function unlockSharedBoard(id: string, pin: string): Promise<Import
   const body = (await res.json().catch(() => null)) as unknown;
   if (!isEncryptedCanvas(body)) return { ok: false, error: "unreadable" };
   try {
+    const { decryptLockedCanvas } = await import("@/lib/encrypted-share");
     const { canvas, dispose } = await decryptLockedCanvas(body, pin);
     return { ok: true, canvas, dispose };
   } catch {

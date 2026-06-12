@@ -1,5 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router";
-import OpenAI, { APIError } from "openai";
 import { YoutubeTranscript } from "youtube-transcript";
 import { getTweet } from "react-tweet/api";
 import { sanitizeGenerateRequestPayload, sanitizeGeneration } from "@/lib/canvas-sanitize";
@@ -107,6 +106,61 @@ function parseJson(value: string): unknown | null {
   }
 }
 
+function parseJsonOrUndefined(value: string): unknown | undefined {
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function formatOpenAIError(status: number, bodyText: string): string {
+  const errorJson = parseJsonOrUndefined(bodyText);
+  const message = errorJson ? undefined : bodyText;
+  const error = isRecord(errorJson) ? errorJson.error : undefined;
+  const errorMessage = isRecord(error) ? error.message : undefined;
+  const detail =
+    errorMessage
+      ? typeof errorMessage === "string" ? errorMessage : JSON.stringify(errorMessage)
+      : error ? JSON.stringify(error)
+      : message;
+
+  if (detail) return `${status} ${detail}`;
+  return `${status} status code (no body)`;
+}
+
+// Mirrors the removed SDK's default resilience: 2 retries on transient
+// statuses/network failures, honoring Retry-After when present.
+const RETRYABLE_STATUSES = new Set([408, 409, 429, 500, 502, 503, 504]);
+
+async function fetchWithRetry(url: string, init: RequestInit, maxRetries = 2): Promise<Response | null> {
+  for (let attempt = 0; ; attempt++) {
+    const response = await fetch(url, init).catch(() => null);
+    if (attempt >= maxRetries) return response;
+    if (response && !RETRYABLE_STATUSES.has(response.status)) return response;
+    const retryAfter = Number(response?.headers.get("retry-after"));
+    const delayMs =
+      Number.isFinite(retryAfter) && retryAfter > 0 && retryAfter <= 30
+        ? retryAfter * 1000
+        : 500 * 2 ** attempt;
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+}
+
+type OpenAIResponsePayload = {
+  output: Array<{
+    type: string;
+    content: Array<{
+      type: string;
+      text?: string;
+    }>;
+  }>;
+};
+
 export const Route = createFileRoute("/api/generate")({
   server: {
     handlers: {
@@ -198,30 +252,57 @@ export const Route = createFileRoute("/api/generate")({
         });
 
         try {
-          const openai = new OpenAI({ apiKey });
-
-          const response = await openai.responses.create({
-            model: "gpt-5.4-mini",
-            input: [
-              { role: "system", content: SYSTEM_PROMPT },
-              { role: "user", content: userContent },
-            ],
-            tools: [{ type: "web_search_preview" }],
-            text: {
-              format: {
-                type: "json_schema",
-                name: "canvas_summary",
-                strict: true,
-                schema: RESPONSE_SCHEMA,
-              },
+          const openAIResponse = await fetchWithRetry("https://api.openai.com/v1/responses", {
+            method: "POST",
+            headers: {
+              Accept: "application/json",
+              Authorization: `Bearer ${apiKey}`,
+              "Content-Type": "application/json",
             },
+            body: JSON.stringify({
+              model: "gpt-5.4-mini",
+              input: [
+                { role: "system", content: SYSTEM_PROMPT },
+                { role: "user", content: userContent },
+              ],
+              tools: [{ type: "web_search_preview" }],
+              text: {
+                format: {
+                  type: "json_schema",
+                  name: "canvas_summary",
+                  strict: true,
+                  schema: RESPONSE_SCHEMA,
+                },
+              },
+            }),
           });
 
+          if (!openAIResponse) {
+            return Response.json({ error: "Connection error." }, { status: 502 });
+          }
+
+          if (!openAIResponse.ok) {
+            const errorText = await openAIResponse.text().catch((err: unknown) =>
+              err instanceof Error ? err.message : String(err)
+            );
+            return Response.json(
+              { error: formatOpenAIError(openAIResponse.status, errorText) },
+              {
+                status:
+                  openAIResponse.status >= 400 && openAIResponse.status < 600 ?
+                    openAIResponse.status
+                  : 502,
+              }
+            );
+          }
+
+          const response = (await openAIResponse.json()) as OpenAIResponsePayload;
+
           const message = response.output.find(
-            (o): o is Extract<typeof o, { type: "message" }> => o.type === "message"
+            (o) => o.type === "message"
           );
           const textContent = message?.content.find(
-            (c): c is Extract<typeof c, { type: "output_text" }> => c.type === "output_text"
+            (c) => c.type === "output_text"
           );
 
           if (!textContent?.text) {
@@ -234,12 +315,6 @@ export const Route = createFileRoute("/api/generate")({
           }
           return Response.json(parsed);
         } catch (err: unknown) {
-          if (err instanceof APIError) {
-            return Response.json(
-              { error: err.message },
-              { status: err.status && err.status >= 400 && err.status < 600 ? err.status : 502 }
-            );
-          }
           return Response.json({ error: "Generation failed" }, { status: 500 });
         }
       },

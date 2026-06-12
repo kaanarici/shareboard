@@ -1,6 +1,5 @@
 import type { BoardOrigin } from "@/lib/board-origin";
-import { createLockedShareId, createLockedSharePackage, type LockedImageUpload } from "@/lib/encrypted-share";
-import { capturePreview } from "@/lib/share-preview";
+import type { LockedImageUpload } from "@/lib/encrypted-share";
 import {
   canvasFromTextOnlyPayload,
   collectSharePayload,
@@ -92,6 +91,7 @@ export async function preparePublicShare({
   form.set("payload", JSON.stringify(payload));
   appendDraftImages(form, pages);
   if (!isMobile && previewRoot) {
+    const { capturePreview } = await import("@/lib/share-preview");
     const preview = await capturePreview(previewRoot);
     if (preview) form.set("preview", preview, "preview.png");
   }
@@ -128,6 +128,7 @@ export async function prepareLockedShare({
   authorProfile: AuthorProfile;
   now?: Date;
 }) {
+  const { createLockedShareId, createLockedSharePackage } = await import("@/lib/encrypted-share");
   const isReplace = boardOrigin.kind === "locked";
   const id = isReplace ? boardOrigin.id : createLockedShareId();
   const createdAt = now.toISOString();
