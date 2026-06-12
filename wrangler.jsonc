@@ -16,5 +16,43 @@
       "binding": "SHAREBOARD_R2",
       "bucket_name": "shareboard"
     }
+  ],
+  // Per-colo, eventually consistent abuse damping only; the in-memory limiter
+  // still enforces the existing 10-minute windows and delete/unlock budgets.
+  // Mapping: create 20/10min/IP -> 4/min, delete 10/10min/IP -> 1/min,
+  // unlock 5/10min/IP + 30/10min/board -> 2/min, OG 60/5min/IP -> 12/min.
+  "ratelimits": [
+    {
+      "name": "SHAREBOARD_SHARE_CREATE_RATE_LIMIT",
+      "namespace_id": "1001",
+      "simple": {
+        "limit": 4,
+        "period": 60
+      }
+    },
+    {
+      "name": "SHAREBOARD_SHARE_DELETE_RATE_LIMIT",
+      "namespace_id": "1002",
+      "simple": {
+        "limit": 1,
+        "period": 60
+      }
+    },
+    {
+      "name": "SHAREBOARD_UNLOCK_RATE_LIMIT",
+      "namespace_id": "1003",
+      "simple": {
+        "limit": 2,
+        "period": 60
+      }
+    },
+    {
+      "name": "SHAREBOARD_OG_RATE_LIMIT",
+      "namespace_id": "1004",
+      "simple": {
+        "limit": 12,
+        "period": 60
+      }
+    }
   ]
 }

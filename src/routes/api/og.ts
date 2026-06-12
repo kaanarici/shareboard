@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { takeRateLimit } from "@/lib/rate-limit";
+import { RATE_LIMIT_BINDINGS, takeRateLimit } from "@/lib/rate-limit";
 import { BROWSER_UA, fetchPublicUrl } from "@/lib/safe-fetch";
 
 const MAX_HTML_BYTES = 2 * 1024 * 1024;
@@ -101,7 +101,9 @@ export const Route = createFileRoute("/api/og")({
       GET: async ({ request }) => {
         const ip = getClientIp(request);
         if (ip) {
-          const rate = takeRateLimit(`og:${ip}`, 60, 5 * 60 * 1000);
+          const rate = await takeRateLimit(`og:${ip}`, 60, 5 * 60 * 1000, {
+            binding: RATE_LIMIT_BINDINGS.og,
+          });
           if (!rate.ok) {
             return Response.json(
               { error: "Too many metadata requests. Try again shortly." },

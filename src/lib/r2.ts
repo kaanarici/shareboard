@@ -4,6 +4,10 @@ export { isSafeObjectKey } from "@/lib/storage-keys";
 
 const LOCAL_PUBLIC_PATH = "/api/share";
 const LOCAL_STORAGE_DIR = ".shareboard-storage";
+const STORED_OBJECT_SECURITY_HEADERS = {
+  "Content-Security-Policy": "default-src 'none'; sandbox",
+  "X-Content-Type-Options": "nosniff",
+} as const;
 
 let cloudflareEnvPromise: Promise<Partial<Cloudflare.Env>> | undefined;
 
@@ -87,6 +91,14 @@ async function localDelete(key: string) {
 function publicUrl(baseUrl: string, key: string): string {
   const path = key.split("/").map(encodeURIComponent).join("/");
   return `${baseUrl.replace(/\/+$/, "")}/${path}`;
+}
+
+export function storedObjectHeaders(headers: HeadersInit = {}): Headers {
+  const result = new Headers(headers);
+  for (const [name, value] of Object.entries(STORED_OBJECT_SECURITY_HEADERS)) {
+    result.set(name, value);
+  }
+  return result;
 }
 
 async function publicBaseUrl(): Promise<string | null> {
@@ -184,10 +196,10 @@ export async function getObjectResponse(key: string): Promise<Response | null> {
     const object = await boundBucket.get(key);
     if (!object) return null;
     return new Response(await object.arrayBuffer(), {
-      headers: {
+      headers: storedObjectHeaders({
         "Content-Type": object.httpMetadata?.contentType || "application/octet-stream",
         "Cache-Control": "public, max-age=31536000, immutable",
-      },
+      }),
     });
   }
 
@@ -195,10 +207,10 @@ export async function getObjectResponse(key: string): Promise<Response | null> {
     const object = await localGet(key);
     if (!object) return null;
     return new Response(new Uint8Array(object.bytes), {
-      headers: {
+      headers: storedObjectHeaders({
         "Content-Type": object.contentType,
         "Cache-Control": "public, max-age=31536000, immutable",
-      },
+      }),
     });
   }
 

@@ -5,6 +5,7 @@ import {
   getObjectResponse,
   isSafeObjectKey,
   putBuffer,
+  storedObjectHeaders,
 } from "@/lib/r2";
 import {
   commitLockedCanvas,
@@ -17,7 +18,7 @@ import {
   readShareRawForDelete,
   rollbackUploadedObjects,
 } from "@/lib/server/share-storage";
-import { takeRateLimit } from "@/lib/rate-limit";
+import { RATE_LIMIT_BINDINGS, takeRateLimit } from "@/lib/rate-limit";
 import {
   SANITIZE_LIMITS,
   sanitizeAuthorProfile,
@@ -52,7 +53,8 @@ const SHARE_LIMITS = {
 
 type EncryptedSharePayload = Omit<EncryptedCanvasEnvelope, "deleteTokenHash">;
 
-const MANIFEST_CACHE_CONTROL = "public, max-age=3600, stale-while-revalidate=86400";
+const IMAGE_CACHE_CONTROL = "public, max-age=31536000, immutable";
+const MANIFEST_CACHE_CONTROL = "public, max-age=60, s-maxage=300, stale-while-revalidate=3600";
 const LOCKED_PIN_ITERATIONS = 100_000;
 const pbkdf2Async = promisify(pbkdf2);
 
@@ -144,6 +146,32 @@ function isSameOrigin(request: Request): boolean {
 
 function hashToken(token: string) {
   return createHash("sha256").update(token).digest("hex");
+}
+
+async function sha256Hex(bytes: Uint8Array) {
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  return Buffer.from(digest).toString("hex");
+}
+
+function manifestEtag(raw: string) {
+  return `"${createHash("sha256").update(raw).digest("base64url")}"`;
+}
+
+function matchesIfNoneMatch(request: Request, etag: string) {
+  const header = request.headers.get("if-none-match");
+  if (!header) return false;
+  return header.split(",").some((part) => {
+    const candidate = part.trim();
+    return candidate === "*" || candidate === etag || candidate === `W/${etag}`;
+  });
+}
+
+function manifestHeaders(etag: string) {
+  return storedObjectHeaders({
+    "Content-Type": "application/json",
+    "Cache-Control": MANIFEST_CACHE_CONTROL,
+    ETag: etag,
+  });
 }
 
 function keepToken(value: unknown, max: number) {
@@ -295,6 +323,13 @@ function parseEncryptedPayload(raw: string | undefined): EncryptedSharePayload {
 type FileCounters = { imageCount: number; imageBytes: number; jsonBytes: number };
 
 type StoredImageItem = Extract<SharedCanvasItem, { type: "image" }>;
+type UploadedImageObject = {
+  key: string;
+  url: string;
+  mimeType: string;
+  size: number;
+};
+type ImageUploadCache = Map<string, UploadedImageObject>;
 
 async function buildSharedItems(
   canvasId: string,
@@ -303,6 +338,7 @@ async function buildSharedItems(
   files: Map<string, File>,
   uploadedKeys: string[],
   counters: FileCounters,
+  imageUploadsByHash: ImageUploadCache,
   /** When provided (replace flow), image items with no uploaded bytes reuse the existing object. */
   reuseImagesById?: Map<string, StoredImageItem>,
 ): Promise<SharedCanvasItem[]> {
@@ -368,8 +404,24 @@ async function buildSharedItems(
       if (!isSafeObjectKey(key)) badRequest("Invalid image id");
       const bytes = Buffer.from(await file.arrayBuffer());
       const mimeType = file.type || sanitized.mimeType || "application/octet-stream";
-      const url = await putBuffer(key, bytes, mimeType, "public, max-age=31536000, immutable");
+      const hash = await sha256Hex(bytes);
+      const existing = imageUploadsByHash.get(hash);
+      if (existing) {
+        items.push({
+          id: sanitized.id,
+          type: "image",
+          url: existing.url,
+          objectKey: existing.key,
+          mimeType: existing.mimeType,
+          size: existing.size,
+          caption: sanitized.caption,
+        });
+        continue;
+      }
+
+      const url = await putBuffer(key, bytes, mimeType, IMAGE_CACHE_CONTROL);
       uploadedKeys.push(key);
+      imageUploadsByHash.set(hash, { key, url, mimeType, size: file.size });
       items.push({
         id: sanitized.id,
         type: "image",
@@ -397,7 +449,7 @@ async function uploadPreview(
   const key = `previews/${canvasId}.png`;
   if (!isSafeObjectKey(key)) return undefined;
   const bytes = Buffer.from(await raw.arrayBuffer());
-  const url = await putBuffer(key, bytes, "image/png", "public, max-age=31536000, immutable");
+  const url = await putBuffer(key, bytes, "image/png", IMAGE_CACHE_CONTROL);
   uploadedKeys.push(key);
   return url;
 }
@@ -410,10 +462,20 @@ async function buildSharedPages(
   reuseImagesById?: Map<string, StoredImageItem>,
 ): Promise<SharedBoardPage[]> {
   const counters: FileCounters = { imageCount: 0, imageBytes: 0, jsonBytes: 0 };
+  const imageUploadsByHash: ImageUploadCache = new Map();
   const pages: SharedBoardPage[] = [];
 
   for (const page of rawPages) {
-    const items = await buildSharedItems(canvasId, page.id, page.items, files, uploadedKeys, counters, reuseImagesById);
+    const items = await buildSharedItems(
+      canvasId,
+      page.id,
+      page.items,
+      files,
+      uploadedKeys,
+      counters,
+      imageUploadsByHash,
+      reuseImagesById,
+    );
     pages.push({ id: page.id, items, ...(page.layouts ? { layouts: page.layouts } : {}) });
   }
 
@@ -440,12 +502,22 @@ export const Route = createFileRoute("/api/share")({
               return Response.json({ error: "Invalid request" }, { status: 400 });
             }
             const { id, pin } = unlock;
-            const rate = takeRateLimit(`share-unlock:${id}:${ip}`, 5, 10 * 60 * 1000);
-            const globalRate = takeRateLimit(`share-unlock-board:${id}`, 30, 10 * 60 * 1000);
+            const [rate, globalRate] = await Promise.all([
+              takeRateLimit(`share-unlock:${id}:${ip}`, 5, 10 * 60 * 1000, {
+                binding: RATE_LIMIT_BINDINGS.unlock,
+              }),
+              takeRateLimit(`share-unlock-board:${id}`, 30, 10 * 60 * 1000, {
+                binding: RATE_LIMIT_BINDINGS.unlock,
+              }),
+            ]);
             if (!rate.ok || !globalRate.ok) {
+              const retryAfterSeconds = Math.max(
+                rate.ok ? 0 : rate.retryAfterSeconds,
+                globalRate.ok ? 0 : globalRate.retryAfterSeconds,
+              );
               return Response.json(
                 { error: "Too many unlock attempts. Try again shortly." },
-                { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds || globalRate.retryAfterSeconds) } }
+                { status: 429, headers: { "Retry-After": String(retryAfterSeconds || 1) } }
               );
             }
 
@@ -467,7 +539,9 @@ export const Route = createFileRoute("/api/share")({
           }
         }
 
-        const rate = takeRateLimit(`share:${ip}`, 20, 10 * 60 * 1000);
+        const rate = await takeRateLimit(`share:${ip}`, 20, 10 * 60 * 1000, {
+          binding: RATE_LIMIT_BINDINGS.shareCreate,
+        });
         if (!rate.ok) {
           return Response.json(
             { error: "Too many share attempts. Try again shortly." },
@@ -523,7 +597,7 @@ export const Route = createFileRoute("/api/share")({
                   key,
                   bytes,
                   "application/octet-stream",
-                  "public, max-age=31536000, immutable"
+                  IMAGE_CACHE_CONTROL
                 );
                 uploadedKeys.push(key);
                 return { ...image, key, url };
@@ -630,20 +704,25 @@ export const Route = createFileRoute("/api/share")({
             if (isEncryptedCanvas(canvas)) {
               return Response.json(
                 { id: canvasId, encrypted: true, locked: true },
-                { headers: { "Cache-Control": "no-store" } }
+                { headers: storedObjectHeaders({ "Cache-Control": "no-store" }) }
               );
             }
             const manifest = sanitizePublicCanvasManifest(canvas);
             if (!manifest) return Response.json({ error: "Object not found" }, { status: 404 });
+            const etag = manifestEtag(publicRaw);
+            const headers = manifestHeaders(etag);
+            if (matchesIfNoneMatch(request, etag)) {
+              return new Response(null, { status: 304, headers });
+            }
             return Response.json(manifest, {
-              headers: { "Content-Type": "application/json", "Cache-Control": MANIFEST_CACHE_CONTROL },
+              headers,
             });
           }
           const { raw: lockedRaw } = await readLockedCanvasRaw(canvasId, lockedCanvasKey);
           if (!lockedRaw) return Response.json({ error: "Object not found" }, { status: 404 });
           return Response.json(
             { id: canvasId, encrypted: true, locked: true },
-            { headers: { "Cache-Control": "no-store" } }
+            { headers: storedObjectHeaders({ "Cache-Control": "no-store" }) }
           );
         }
 
@@ -667,7 +746,9 @@ export const Route = createFileRoute("/api/share")({
           return Response.json({ error: "Forbidden" }, { status: 403 });
         }
         const ip = getClientIp(request);
-        const rate = takeRateLimit(`share-delete:${ip}`, 10, 10 * 60 * 1000);
+        const rate = await takeRateLimit(`share-delete:${ip}`, 10, 10 * 60 * 1000, {
+          binding: RATE_LIMIT_BINDINGS.shareDelete,
+        });
         if (!rate.ok) {
           return Response.json(
             { error: "Too many delete attempts. Try again shortly." },

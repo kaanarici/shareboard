@@ -66,6 +66,24 @@ describe("share storage replace cleanup", () => {
     expect(Array.from(collectStoredImageObjectKeys(pages))).toEqual(["images/a"]);
   });
 
+  test("deduped image keys still drive replace cleanup from the next manifest", () => {
+    const pages = [
+      {
+        id: "p1",
+        items: [
+          { id: "img-1", type: "image", url: "https://x/1", objectKey: "images/board/hash" },
+          { id: "img-2", type: "image", url: "https://x/2", objectKey: "images/board/hash" },
+        ],
+      },
+    ] as const;
+    const nextKeys = collectStoredImageObjectKeys(pages);
+
+    expect(Array.from(nextKeys)).toEqual(["images/board/hash"]);
+    expect(computeReplaceCleanupKeys(["images/board/hash", "images/board/stale"], nextKeys)).toEqual([
+      "images/board/stale",
+    ]);
+  });
+
   test("builds public replace state from prior manifest", () => {
     const canvas = {
       id: "board-1",

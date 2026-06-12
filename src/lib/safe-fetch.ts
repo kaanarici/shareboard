@@ -13,13 +13,37 @@ export class PublicFetchError extends Error {
   }
 }
 
-function isPrivateIp(address: string): boolean {
-  if (address === "::1" || address === "0.0.0.0") return true;
-  if (address.startsWith("fc") || address.startsWith("fd") || address.startsWith("fe80:")) return true;
-  if (address.startsWith("::ffff:")) return isPrivateIp(address.slice("::ffff:".length));
-  if (address.includes(":")) return false;
+function normalizeHostname(hostname: string): string {
+  return hostname.startsWith("[") && hostname.endsWith("]") ? hostname.slice(1, -1).toLowerCase() : hostname.toLowerCase();
+}
 
-  const octets = address.split(".").map(Number);
+function ipv4FromMappedIpv6(address: string): string | null {
+  const dotted = address.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
+  if (dotted) return dotted[1];
+  const hex = address.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (!hex) return null;
+  const high = Number.parseInt(hex[1], 16);
+  const low = Number.parseInt(hex[2], 16);
+  return `${high >> 8}.${high & 255}.${low >> 8}.${low & 255}`;
+}
+
+function firstIpv6Hextet(address: string): number | null {
+  const first = address.split(":")[0];
+  if (!/^[0-9a-f]{1,4}$/.test(first)) return null;
+  return Number.parseInt(first, 16);
+}
+
+function isPrivateIp(address: string): boolean {
+  const normalized = address.toLowerCase();
+  const mappedIpv4 = ipv4FromMappedIpv6(normalized);
+  if (mappedIpv4) return isPrivateIp(mappedIpv4);
+  if (normalized === "::1" || normalized === "::" || normalized === "0.0.0.0") return true;
+  if (normalized.includes(":")) {
+    const first = firstIpv6Hextet(normalized);
+    return first !== null && ((first & 0xfe00) === 0xfc00 || (first & 0xffc0) === 0xfe80);
+  }
+
+  const octets = normalized.split(".").map(Number);
   if (octets.length !== 4 || octets.some((part) => Number.isNaN(part))) return true;
 
   const [a, b] = octets;
@@ -36,17 +60,18 @@ function isPrivateIp(address: string): boolean {
 
 async function assertPublicUrl(value: string): Promise<URL> {
   const url = new URL(value);
+  const hostname = normalizeHostname(url.hostname);
   if (!["http:", "https:"].includes(url.protocol)) {
     throw new PublicFetchError("Only http(s) URLs are allowed", 400);
   }
   if (url.username || url.password) {
     throw new PublicFetchError("Authenticated URLs are not allowed", 400);
   }
-  if (["localhost", "localhost.localdomain"].includes(url.hostname) || url.hostname.endsWith(".local")) {
+  if (["localhost", "localhost.localdomain"].includes(hostname) || hostname.endsWith(".local")) {
     throw new PublicFetchError("Private hosts are not allowed", 400);
   }
 
-  const literal = isIP(url.hostname) ? url.hostname : null;
+  const literal = isIP(hostname) ? hostname : null;
   if (literal && isPrivateIp(literal)) {
     throw new PublicFetchError("Private hosts are not allowed", 400);
   }
