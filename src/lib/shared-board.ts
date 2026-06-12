@@ -1,6 +1,5 @@
 import { sanitizePublicCanvasManifest } from "@/lib/canvas-sanitize";
 import {
-  BOARD_SUMMARY_ITEM_ID,
   isLockedCanvasStub,
   type Canvas,
   type CanvasFetchResponse,
@@ -38,12 +37,8 @@ export async function readStoredSharedBoardResponse(res: Response): Promise<Canv
 }
 
 export function hydrateSharedBoardPages(canvas: Canvas): SharedBoardPage[] {
-  return canvas.pages.map((page, index) => {
-    const baseItems = page.items as CanvasItem[];
-    const items =
-      index === 0 && canvas.generation && !baseItems.some((item) => item.id === BOARD_SUMMARY_ITEM_ID)
-        ? [...baseItems, { id: BOARD_SUMMARY_ITEM_ID, type: "board_summary" as const }]
-        : baseItems;
+  return canvas.pages.map((page) => {
+    const items = page.items as CanvasItem[];
     // AutoCanvas packs missing ids on render, so an empty `layouts` is fine —
     // the viewer sees the fresh masonry layout, and any persisted positions
     // from the author's drags take precedence.

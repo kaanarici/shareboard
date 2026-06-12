@@ -1,9 +1,7 @@
 
 import { useState } from "react";
-import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { isPlausibleOpenaiApiKey, sanitizeOpenaiApiKeyInput } from "@/lib/openai-api-key";
-import { setApiKey, setName, setProfile } from "@/lib/store";
+import { setName, setProfile } from "@/lib/store";
 import { X as XIcon } from "@/components/ui/svgs/x";
 import { InstagramIcon } from "@/components/ui/svgs/instagramIcon";
 import { Linkedin } from "@/components/ui/svgs/linkedin";
@@ -18,7 +16,6 @@ const ignoreAttrs = {
 
 export function SetupCards({ onComplete }: { onComplete: () => void }) {
   const [name, setNameValue] = useState("");
-  const [key, setKeyValue] = useState("");
   const [xUrl, setXUrl] = useState("");
   const [instagramUrl, setInstagramUrl] = useState("");
   const [linkedinUrl, setLinkedinUrl] = useState("");
@@ -28,7 +25,6 @@ export function SetupCards({ onComplete }: { onComplete: () => void }) {
     e.preventDefault();
     if (!name.trim() || closing) return;
     setName(name.trim());
-    setApiKey(key);
     setProfile({ xUrl, instagramUrl, linkedinUrl });
     setClosing(true);
     window.setTimeout(onComplete, 180);
@@ -51,8 +47,7 @@ export function SetupCards({ onComplete }: { onComplete: () => void }) {
             Welcome to Shareboard
           </h2>
           <p className="text-sm text-muted-foreground mt-2 text-pretty">
-            A canvas for links, notes, and images. Arrange on the grid, share one link,
-            or use Summarize with your own OpenAI key.
+            A canvas for links, notes, and images. Arrange on the grid and share one link.
           </p>
         </div>
 
@@ -125,36 +120,6 @@ export function SetupCards({ onComplete }: { onComplete: () => void }) {
                 className="setup-dialog-tile-input"
               />
             </div>
-          </div>
-        </div>
-
-        <div className="setup-dialog-card setup-dialog-tile setup-dialog-tile--apikey">
-          <span className="setup-dialog-tile-label">
-            OpenAI API key
-            <span className="setup-dialog-tile-label-muted">(optional, for Summarize)</span>
-          </span>
-          <div className="setup-dialog-apikey-row">
-            <input
-              type="text"
-              placeholder="sk-..."
-              value={key}
-              onChange={(e) => setKeyValue(sanitizeOpenaiApiKeyInput(e.target.value))}
-              autoCapitalize="none"
-              autoCorrect="off"
-              spellCheck={false}
-              enterKeyHint="done"
-              {...ignoreAttrs}
-              className="setup-dialog-tile-input setup-dialog-tile-input--masked"
-            />
-            {isPlausibleOpenaiApiKey(key) && (
-              <span
-                className="setup-dialog-apikey-ok"
-                title="Key format looks good"
-                aria-label="Key format looks good"
-              >
-                <Check strokeWidth={2.5} aria-hidden />
-              </span>
-            )}
           </div>
         </div>
 

@@ -68,7 +68,7 @@ export default defineConfig({
   // Packages that don't ship clean ESM (CSS imports, CJS-in-ESM files, etc.) must be
   // bundled through Vite's SSR pipeline instead of loaded by Node's native ESM loader.
   ssr: {
-    noExternal: ["youtube-transcript", "react-tweet"],
+    noExternal: ["react-tweet"],
   },
   plugins: [
     cloudflare({ viteEnvironment: { name: "ssr" } }),

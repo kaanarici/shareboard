@@ -11,7 +11,7 @@ import {
 import { takeRateLimit } from "@/lib/rate-limit";
 
 export const HANDOFF_MAX_CIPHERTEXT_BYTES = 1.5 * 1024 * 1024;
-export const HANDOFF_MAX_TTL_MS = 15 * 60 * 1000;
+export const HANDOFF_MAX_TTL_MS = 60 * 60 * 1000;
 
 const HANDOFF_CREATE_LIMIT = { count: 10, windowMs: 10 * 60 * 1000 };
 const HANDOFF_READ_LIMIT = { count: 60, windowMs: 10 * 60 * 1000 };

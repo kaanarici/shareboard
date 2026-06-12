@@ -59,7 +59,7 @@ function HandoffReceivePage() {
   const openOnMyBoard = useCallback(async () => {
     if (state.status !== "ready") return;
     try {
-      await saveLocalDraft(editorPagesFromCanvas(state.canvas), state.canvas.generation ?? null);
+      await saveLocalDraft(editorPagesFromCanvas(state.canvas));
     } catch {
       // Local storage unavailable — keep the preview rather than navigating to
       // an empty board, so the handed-off content isn't silently lost.

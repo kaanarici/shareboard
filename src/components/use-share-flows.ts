@@ -21,7 +21,6 @@ import { notify } from "@/lib/toast";
 import {
   type BoardPage,
   type Canvas as SharedCanvasData,
-  type GenerateResponse,
   isShareCreateResponse,
 } from "@/lib/types";
 
@@ -33,13 +32,11 @@ async function readShareCreateResponse(res: Response) {
 
 export function useShareFlows({
   pages,
-  generation,
   boardOrigin,
   onRestoreBoard,
   onOriginChange,
 }: {
   pages: BoardPage[];
-  generation: GenerateResponse | null;
   boardOrigin: BoardOrigin;
   onRestoreBoard: (canvas: SharedCanvasData, origin: BoardOrigin, dispose?: () => void) => void;
   onOriginChange: (origin: BoardOrigin) => void;
@@ -93,7 +90,6 @@ export function useShareFlows({
     try {
       const draft = await preparePublicShare({
         pages,
-        generation,
         author: getName(),
         authorProfile: getProfile(),
         boardOrigin,
@@ -160,7 +156,7 @@ export function useShareFlows({
     } finally {
       shareInFlightRef.current = false;
     }
-  }, [pages, generation, boardOrigin, isMobile, finishShare, markShareCopied, onOriginChange]);
+  }, [pages, boardOrigin, isMobile, finishShare, markShareCopied, onOriginChange]);
 
   const shareLocked = useCallback(
     async (pin: string) => {
@@ -171,7 +167,6 @@ export function useShareFlows({
       try {
         const draft = await prepareLockedShare({
           pages,
-          generation,
           boardOrigin,
           pin,
           author: getName(),
@@ -220,7 +215,7 @@ export function useShareFlows({
         setLockedShareBusy(false);
       }
     },
-    [pages, generation, boardOrigin, finishShare, markShareCopied, onOriginChange],
+    [pages, boardOrigin, finishShare, markShareCopied, onOriginChange],
   );
 
   const openHistoryEntry = useCallback(

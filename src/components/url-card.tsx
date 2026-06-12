@@ -1,6 +1,6 @@
 
 import { lazy, Suspense, useState } from "react";
-import type { CanvasItem, ItemSummary } from "@/lib/types";
+import type { CanvasItem } from "@/lib/types";
 import { PlatformIcon } from "./platform-icon";
 import { YouTubeEmbed } from "./youtube-embed";
 
@@ -10,12 +10,10 @@ const TweetEmbed = lazy(() => import("./tweet-embed").then((module) => ({ defaul
 
 export function UrlCard({
   item,
-  summary,
   readonly,
   onMeasureTweet,
 }: {
   item: UrlItem;
-  summary?: ItemSummary;
   readonly?: boolean;
   onMeasureTweet?: (ratio: number) => void;
 }) {
@@ -35,7 +33,7 @@ export function UrlCard({
     return <YouTubeEmbed url={item.url} />;
   }
 
-  return <OGCard item={item} summary={summary} readonly={readonly} />;
+  return <OGCard item={item} readonly={readonly} />;
 }
 
 function TweetEmbedFallback() {
@@ -47,7 +45,7 @@ function TweetEmbedFallback() {
   );
 }
 
-function OGCard({ item, summary, readonly }: { item: UrlItem; summary?: ItemSummary; readonly?: boolean }) {
+function OGCard({ item, readonly }: { item: UrlItem; readonly?: boolean }) {
   const og = item.ogData;
   const [imageFailed, setImageFailed] = useState(false);
   const hostname = (() => {
@@ -56,8 +54,8 @@ function OGCard({ item, summary, readonly }: { item: UrlItem; summary?: ItemSumm
   })();
 
   const showImage = Boolean(og?.image) && !imageFailed;
-  const title = og?.title || summary?.title || hostname;
-  const description = og?.description || summary?.summary;
+  const title = og?.title || hostname;
+  const description = og?.description;
 
   return (
     <a

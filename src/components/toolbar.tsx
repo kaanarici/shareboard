@@ -1,13 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { Button } from "@/components/ui/button";
-import { isPlausibleOpenaiApiKey, sanitizeOpenaiApiKeyInput } from "@/lib/openai-api-key";
-import { setApiKey, setName, setProfile, getName, getApiKey, getProfile } from "@/lib/store";
+import { setName, setProfile, getName, getProfile } from "@/lib/store";
 import { useIsMobile } from "@/lib/use-is-mobile";
 import {
-  Check,
   Clock3,
-  Sparkles,
   LockKeyhole,
   Settings,
   Loader2,
@@ -43,8 +40,6 @@ function formatSavedAt(savedAt: number): string {
 
 export function Toolbar({
   hasItems,
-  hasApiKey,
-  isGenerating,
   locked,
   pageCount,
   activePage,
@@ -55,7 +50,6 @@ export function Toolbar({
   onAddFile,
   onPasteLink,
   onImport,
-  onGenerate,
   onShare,
   onNewBoard,
   onSaveToLibrary,
@@ -65,8 +59,6 @@ export function Toolbar({
   onRemoveHistoryEntry,
 }: {
   hasItems: boolean;
-  hasApiKey: boolean;
-  isGenerating: boolean;
   locked?: boolean;
   pageCount: number;
   activePage: number;
@@ -77,7 +69,6 @@ export function Toolbar({
   onAddFile: (file: File) => void;
   onPasteLink: () => void;
   onImport: () => void;
-  onGenerate: () => void;
   onShare: () => void;
   onNewBoard: () => void;
   onSaveToLibrary: () => void;
@@ -104,7 +95,6 @@ export function Toolbar({
   const closeMenu = () => setOpenMenu(null);
 
   const [settingsName, setSettingsName] = useState("");
-  const [settingsKey, setSettingsKey] = useState("");
   const [settingsX, setSettingsX] = useState("");
   const [settingsIg, setSettingsIg] = useState("");
   const [settingsLi, setSettingsLi] = useState("");
@@ -143,20 +133,6 @@ export function Toolbar({
       icon: <Download className="h-4 w-4" />,
       onClick: onImport,
     },
-    // Summarize is hidden until the board has content — there's nothing to
-    // summarize otherwise, and the disabled-button shape was just noise.
-    ...(hasItems
-      ? [{
-          label: hasApiKey ? "Summarize board" : "Summarize board (add an OpenAI key first)",
-          icon: isGenerating ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Sparkles className="h-4 w-4" />
-          ),
-          onClick: onGenerate,
-          disabled: isGenerating || !hasApiKey,
-        } satisfies ActionFanItem]
-      : []),
     {
       label: "Locked share",
       icon: <LockKeyhole className="h-4 w-4" />,
@@ -167,7 +143,6 @@ export function Toolbar({
 
   const hydrateSettingsFields = () => {
     setSettingsName(getName());
-    setSettingsKey(sanitizeOpenaiApiKeyInput(getApiKey()));
     const p = getProfile();
     setSettingsX(p.xUrl ?? "");
     setSettingsIg(p.instagramUrl ?? "");
@@ -183,7 +158,6 @@ export function Toolbar({
 
   const saveSettings = () => {
     if (settingsName.trim()) setName(settingsName.trim());
-    setApiKey(settingsKey);
     setProfile({
       xUrl: settingsX.trim(),
       instagramUrl: settingsIg.trim(),
@@ -277,35 +251,6 @@ export function Toolbar({
                     className="setup-dialog-tile-input"
                   />
                 </div>
-              </div>
-            </div>
-
-            <div className="setup-dialog-tile">
-              <span className="setup-dialog-tile-label">
-                OpenAI API key
-                <span className="setup-dialog-tile-label-muted">(optional, for Summarize)</span>
-              </span>
-              <div className="setup-dialog-apikey-row">
-                <input
-                  type="text"
-                  placeholder="sk-..."
-                  value={settingsKey}
-                  onChange={(e) => setSettingsKey(sanitizeOpenaiApiKeyInput(e.target.value))}
-                  autoComplete="off"
-                  autoCapitalize="none"
-                  autoCorrect="off"
-                  spellCheck={false}
-                  className="setup-dialog-tile-input setup-dialog-tile-input--masked"
-                />
-                {isPlausibleOpenaiApiKey(settingsKey) && (
-                  <span
-                    className="setup-dialog-apikey-ok"
-                    title="Key format looks good"
-                    aria-label="Key format looks good"
-                  >
-                    <Check strokeWidth={2.5} aria-hidden />
-                  </span>
-                )}
               </div>
             </div>
 

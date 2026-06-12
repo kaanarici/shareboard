@@ -1,10 +1,10 @@
 import { FileJson } from "lucide-react";
-import type { CanvasItem, ItemSummary } from "@/lib/types";
+import type { CanvasItem } from "@/lib/types";
 import { formatBytes } from "@/lib/image-policy";
 
 type JsonItem = Extract<CanvasItem, { type: "json" }>;
 
-export function JsonCard({ item, summary }: { item: JsonItem; summary?: ItemSummary }) {
+export function JsonCard({ item }: { item: JsonItem }) {
   return (
     <div className="flex h-full flex-col bg-card">
       <div className="flex shrink-0 items-center gap-2 border-b border-border/40 px-3 py-2">
@@ -15,11 +15,6 @@ export function JsonCard({ item, summary }: { item: JsonItem; summary?: ItemSumm
       <pre className="min-h-0 flex-1 overflow-auto p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap">
         {item.text}
       </pre>
-      {summary?.summary && (
-        <p className="shrink-0 border-t border-border/40 px-3 py-2 text-xs text-muted-foreground">
-          {summary.summary}
-        </p>
-      )}
     </div>
   );
 }

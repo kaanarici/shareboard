@@ -1,9 +1,8 @@
 import { useSyncExternalStore } from "react";
-import { sanitizeOpenaiApiKeyInput } from "@/lib/openai-api-key";
+import { sanitizeTinyCanvas } from "@/lib/canvas-sanitize";
 import type { AuthorProfile, Canvas } from "@/lib/types";
 
 const KEYS = {
-  apiKey: "shareboard_api_key",
   name: "shareboard_name",
   profile: "shareboard_profile",
   draft: "shareboard_draft",
@@ -46,22 +45,12 @@ function subscribeSettings(callback: () => void) {
 
 /**
  * Subscribes a component to localStorage-backed settings, re-reading via
- * `read()` whenever any setter (setApiKey, setName, setProfile) fires the
+ * `read()` whenever any setter fires the
  * shareboard-settings event. SSR-safe: `read()` runs on the server too, so
  * pass guards inside the reader for any browser-only APIs.
  */
 export function useSyncedSetting<T>(read: () => T): T {
   return useSyncExternalStore(subscribeSettings, read, read);
-}
-
-export function getApiKey(): string {
-  if (typeof window === "undefined") return "";
-  return localStorage.getItem(KEYS.apiKey) ?? "";
-}
-
-export function setApiKey(key: string) {
-  localStorage.setItem(KEYS.apiKey, sanitizeOpenaiApiKeyInput(key));
-  notifySettingsChanged();
 }
 
 export function getName(): string {
@@ -139,10 +128,10 @@ export function getBoardHistory(): BoardHistoryEntry[] {
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
     return parsed
-      .filter((entry): entry is BoardHistoryEntry => {
-        if (!entry || typeof entry !== "object") return false;
+      .map((entry): BoardHistoryEntry | null => {
+        if (!entry || typeof entry !== "object") return null;
         const e = entry as Record<string, unknown>;
-        return (
+        if (
           typeof e.id === "string" &&
           (e.kind === "tiny" || e.kind === "stored" || e.kind === "locked") &&
           typeof e.title === "string" &&
@@ -151,8 +140,24 @@ export function getBoardHistory(): BoardHistoryEntry[] {
           typeof e.createdAt === "string" &&
           typeof e.itemCount === "number" &&
           typeof e.pageCount === "number"
-        );
+        ) {
+          const canvas = sanitizeTinyCanvas(e.canvas);
+          return {
+            id: e.id,
+            kind: e.kind,
+            title: e.title,
+            subtitle: e.subtitle,
+            shareUrl: e.shareUrl,
+            createdAt: e.createdAt,
+            itemCount: e.itemCount,
+            pageCount: e.pageCount,
+            ...(canvas ? { canvas } : {}),
+            ...(typeof e.deleteToken === "string" ? { deleteToken: e.deleteToken } : {}),
+          };
+        }
+        return null;
       })
+      .filter((entry): entry is BoardHistoryEntry => !!entry)
       .slice(0, MAX_HISTORY);
   } catch {
     return [];

@@ -8,20 +8,16 @@ import {
   pruneEmptyPages,
   removeItemsFromPage,
 } from "./board-lifecycle";
-import { BOARD_SUMMARY_ITEM_ID, type BoardPage } from "./types";
+import type { BoardPage } from "./types";
 
 const layouts = { lg: [], sm: [] };
 
 describe("board lifecycle", () => {
-  test("restores shared boards into editable pages with a synthetic summary card", () => {
+  test("restores shared boards into editable pages without legacy generation items", () => {
     const pages = editorPagesFromCanvas({
       id: "shared",
       author: "Ada",
       createdAt: "2026-05-01T00:00:00.000Z",
-      generation: {
-        item_summaries: [],
-        overall_summary: { title: "Summary", explanation: "", tags: [] },
-      },
       pages: [
         {
           id: "page",
@@ -34,10 +30,7 @@ describe("board lifecycle", () => {
       {
         id: "page",
         layouts,
-        items: [
-          { id: "note", type: "note", text: "hello" },
-          { id: BOARD_SUMMARY_ITEM_ID, type: "board_summary" },
-        ],
+        items: [{ id: "note", type: "note", text: "hello" }],
       },
     ]);
   });

@@ -45,11 +45,9 @@ const getSharedHead = createServerFn({ method: "GET" })
     if (parsed && typeof parsed === "object" && "encrypted" in parsed) return null;
     const manifest = sanitizePublicCanvasManifest(parsed);
     if (!manifest) return null;
-    const title = manifest.generation?.overall_summary?.title?.trim() || `${manifest.author}'s board`;
-    const description = manifest.generation?.overall_summary?.explanation?.trim().slice(0, 200);
+    const title = `${manifest.author}'s board`;
     return {
       title,
-      ...(description ? { description } : {}),
       ...(manifest.previewUrl ? { previewUrl: manifest.previewUrl } : {}),
     };
   });

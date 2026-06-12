@@ -4,7 +4,6 @@ import {
   isDraftImageItem,
   type BoardPage,
   type CanvasItem,
-  type GenerateResponse,
   type GridLayouts,
 } from "@/lib/types";
 
@@ -23,14 +22,12 @@ interface StoredPage {
 
 interface StoredDraft {
   v: 2;
-  generation: GenerateResponse | null;
   pages: StoredPage[];
   boardOrigin?: BoardOrigin;
 }
 
 interface DraftSnapshot {
   pages: BoardPage[];
-  generation: GenerateResponse | null;
   boardOrigin: BoardOrigin;
 }
 
@@ -136,12 +133,13 @@ const indexedDbDraftStore = createIndexedDbDraftStore();
  * we reconstruct the previewUrl from the file.
  */
 function stripForStorage(items: CanvasItem[]): unknown[] {
-  return items.map((item) => {
+  return items.flatMap((item) => {
+    if ((item as { type?: unknown }).type === "board_summary") return [];
     if (isDraftImageItem(item)) {
       const { previewUrl: _ignored, ...rest } = item;
-      return rest;
+      return [rest];
     }
-    return item;
+    return [item];
   });
 }
 
@@ -161,11 +159,24 @@ function stripLayoutsForStorage(layouts: GridLayouts): GridLayouts {
   return { lg: clean(layouts.lg), sm: clean(layouts.sm) };
 }
 
+function stripStoredLayoutsToItems(layouts: GridLayouts, items: readonly unknown[]): GridLayouts {
+  const ids = new Set(
+    items
+      .map((item) => (item && typeof item === "object" ? (item as { id?: unknown }).id : null))
+      .filter((id): id is string => typeof id === "string"),
+  );
+  return {
+    lg: layouts.lg.filter((layout) => ids.has(layout.i)),
+    sm: layouts.sm.filter((layout) => ids.has(layout.i)),
+  };
+}
+
 function rehydrate(items: unknown[], adapter: DraftSerializationAdapter): CanvasItem[] {
   const out: CanvasItem[] = [];
   for (const raw of items) {
     if (!raw || typeof raw !== "object") continue;
     const item = raw as Record<string, unknown>;
+    if (item.type === "board_summary") continue;
     if (item.type === "image" && adapter.isFile(item.file)) {
       out.push({ ...item, previewUrl: adapter.createPreviewUrl(item.file) } as CanvasItem);
     } else {
@@ -175,19 +186,25 @@ function rehydrate(items: unknown[], adapter: DraftSerializationAdapter): Canvas
   return out;
 }
 
+function stripLayoutsToItems(layouts: GridLayouts, items: readonly CanvasItem[]): GridLayouts {
+  const ids = new Set(items.map((item) => item.id));
+  return {
+    lg: (layouts.lg ?? []).filter((layout) => ids.has(layout.i)),
+    sm: (layouts.sm ?? []).filter((layout) => ids.has(layout.i)),
+  };
+}
+
 function createStoredDraftSnapshot(
   pages: BoardPage[],
-  generation: GenerateResponse | null,
   boardOrigin: BoardOrigin = { kind: "draft" },
 ): StoredDraft {
   return {
     v: 2,
-    generation,
-    pages: pages.map((page) => ({
-      ...page,
-      layouts: stripLayoutsForStorage(page.layouts),
-      items: stripForStorage(page.items),
-    })),
+    pages: pages.map((page) => {
+      const items = stripForStorage(page.items);
+      const layouts = stripStoredLayoutsToItems(stripLayoutsForStorage(page.layouts), items);
+      return { ...page, layouts, items };
+    }),
     boardOrigin,
   };
 }
@@ -198,23 +215,24 @@ function restoreStoredDraftSnapshot(
 ): DraftSnapshot | null {
   if (!raw || raw.v !== 2 || !Array.isArray(raw.pages) || raw.pages.length === 0) return null;
   return {
-    pages: raw.pages.map((page) => ({
-      id: page.id,
-      layouts: page.layouts ?? { lg: [], sm: [] },
-      items: rehydrate(page.items ?? [], adapter),
-    })),
-    generation: raw.generation ?? null,
+    pages: raw.pages.map((page) => {
+      const items = rehydrate(page.items ?? [], adapter);
+      return {
+        id: page.id,
+        layouts: stripLayoutsToItems(page.layouts ?? { lg: [], sm: [] }, items),
+        items,
+      };
+    }),
     boardOrigin: raw.boardOrigin ?? { kind: "draft" },
   };
 }
 
 export async function saveLocalDraft(
   pages: BoardPage[],
-  generation: GenerateResponse | null,
   boardOrigin: BoardOrigin = { kind: "draft" },
 ): Promise<void> {
   if (!indexedDbDraftStore.available) throw new Error("Local storage unavailable");
-  const snapshot = createStoredDraftSnapshot(pages, generation, boardOrigin);
+  const snapshot = createStoredDraftSnapshot(pages, boardOrigin);
   await indexedDbDraftStore.save(snapshot);
 }
 
@@ -248,12 +266,10 @@ export async function clearLocalDraft(): Promise<void> {
  */
 export function draftSignature(
   pages: BoardPage[],
-  generation: GenerateResponse | null,
   boardOrigin: BoardOrigin = { kind: "draft" },
 ): string {
   return JSON.stringify({
     o: boardOrigin,
-    g: generation,
     p: pages.map((page) => ({
       id: page.id,
       i: page.items.map((item) => {
@@ -354,13 +370,13 @@ function toLibraryMeta({ id, name, savedAt }: LibraryBoardRecord): LibraryBoardM
  */
 async function putLibraryBoard(
   store: LibraryStoreAdapter,
-  input: { id: string; name: string; savedAt: number; pages: BoardPage[]; generation: GenerateResponse | null },
+  input: { id: string; name: string; savedAt: number; pages: BoardPage[] },
 ): Promise<{ saved: LibraryBoardMeta; evicted: LibraryBoardMeta[] }> {
   const record: LibraryBoardRecord = {
     id: input.id,
     name: input.name,
     savedAt: input.savedAt,
-    snapshot: createStoredDraftSnapshot(input.pages, input.generation, { kind: "draft" }),
+    snapshot: createStoredDraftSnapshot(input.pages, { kind: "draft" }),
   };
   await store.put(record);
 
@@ -390,7 +406,6 @@ async function openLibrary(
 export async function saveBoardToLibrary(
   name: string,
   pages: BoardPage[],
-  generation: GenerateResponse | null,
 ): Promise<{ saved: LibraryBoardMeta; evicted: LibraryBoardMeta[] }> {
   if (!indexedDbLibraryStore.available) throw new Error("Local storage unavailable");
   return putLibraryBoard(indexedDbLibraryStore, {
@@ -398,7 +413,6 @@ export async function saveBoardToLibrary(
     name,
     savedAt: Date.now(),
     pages,
-    generation,
   });
 }
 

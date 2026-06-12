@@ -1,15 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import {
-  sanitizeGenerateRequestPayload,
   sanitizePublicCanvasManifest,
   sanitizeShareRequestPayload,
   sanitizeTinyCanvas,
 } from "./canvas-sanitize";
 import { isSafeObjectKey } from "./storage-keys";
-import { BOARD_SUMMARY_ITEM_ID } from "./types";
 
 describe("canvas sanitizers", () => {
-  test("public manifests drop draft-only image state and synthetic summary items", () => {
+  test("public manifests drop draft-only image state, generation, and legacy summary items", () => {
     const canvas = sanitizePublicCanvasManifest({
       id: "board",
       author: "Ada",
@@ -24,9 +22,16 @@ describe("canvas sanitizers", () => {
               previewUrl: "blob:http://localhost/draft",
               file: { name: "draft.png" },
             },
-            { id: BOARD_SUMMARY_ITEM_ID, type: "board_summary" },
+            { id: "__summary__", type: "board_summary" },
             { id: "note", type: "note", text: "hello" },
           ],
+          layouts: {
+            lg: [
+              { i: "__summary__", x: 0, y: 0, w: 6, h: 4 },
+              { i: "note", x: 6, y: 0, w: 6, h: 4 },
+            ],
+            sm: [{ i: "__summary__", x: 0, y: 0, w: 1, h: 4 }],
+          },
         },
       ],
       generation: {
@@ -36,7 +41,8 @@ describe("canvas sanitizers", () => {
     });
 
     expect(canvas?.pages[0]?.items).toEqual([{ id: "note", type: "note", text: "hello" }]);
-    expect(canvas?.generation?.overall_summary.title).toBe("Summary");
+    expect(canvas?.pages[0]?.layouts).toEqual({ lg: [{ i: "note", x: 6, y: 0, w: 6, h: 4 }], sm: [] });
+    expect(canvas && "generation" in canvas).toBe(false);
   });
 
   test("public manifests keep safe local image proxy URLs and object keys", () => {
@@ -86,19 +92,26 @@ describe("canvas sanitizers", () => {
             { id: "url", type: "url", url: "https://example.com", platform: "website" },
             { id: "json", type: "json", name: "data.json", text: '{"ok":true}', size: 11 },
             { id: "image", type: "image", url: "https://example.com/image.png" },
-            { id: BOARD_SUMMARY_ITEM_ID, type: "board_summary" },
+            { id: "__summary__", type: "board_summary" },
           ],
+          layouts: { lg: [{ i: "__summary__", x: 0, y: 0, w: 6, h: 4 }], sm: [] },
         },
       ],
+      generation: {
+        item_summaries: [],
+        overall_summary: { title: "Summary", explanation: "Text", tags: ["tag"] },
+      },
     });
 
     expect(canvas?.pages[0]?.items).toEqual([
       { id: "url", type: "url", url: "https://example.com/", platform: "website" },
       { id: "json", type: "json", name: "data.json", text: '{"ok":true}', size: 11 },
     ]);
+    expect(canvas?.pages[0]?.layouts).toBeUndefined();
+    expect(canvas && "generation" in canvas).toBe(false);
   });
 
-  test("share and generate request payloads parse through narrow item shapes", () => {
+  test("share request payloads parse through narrow item shapes", () => {
     const share = sanitizeShareRequestPayload({
       pages: [
         {
@@ -120,57 +133,6 @@ describe("canvas sanitizers", () => {
     expect(share?.pages[0]?.items).toEqual([
       { id: "image", type: "image", caption: "screenshot" },
       { id: "json", type: "json", name: "data.json", text: '{"ok":true}', size: 11 },
-    ]);
-
-    const generate = sanitizeGenerateRequestPayload({
-      items: [
-        {
-          id: "image",
-          type: "image",
-          url: "blob:http://localhost/preview",
-          previewUrl: "blob:http://localhost/preview",
-          file: { name: "image.png" },
-          caption: "  screenshot  ",
-        },
-        { id: "json", type: "json", name: "data.json", text: '{"ok":true}', size: 11 },
-      ],
-    });
-    expect(generate?.items).toEqual([
-      { id: "image", type: "image", caption: "screenshot" },
-      { id: "json", type: "json", name: "data.json", text: '{"ok":true}', size: 11 },
-    ]);
-  });
-
-  test("generation sanitizer preserves the declared item summary shape", () => {
-    const canvas = sanitizePublicCanvasManifest({
-      id: "board",
-      author: "Ada",
-      pages: [{ id: "page", items: [{ id: "note", type: "note", text: "hello" }] }],
-      generation: {
-        item_summaries: [
-          {
-            item_id: "note",
-            title: "Title",
-            summary: "Summary",
-            source_type: "note",
-            author: "Ada",
-            key_quote: "hello",
-            extra: "ignored",
-          },
-        ],
-        overall_summary: { title: "Overall", explanation: "Text", tags: ["tag"] },
-      },
-    });
-
-    expect(canvas?.generation?.item_summaries).toEqual([
-      {
-        item_id: "note",
-        title: "Title",
-        summary: "Summary",
-        source_type: "note",
-        author: "Ada",
-        key_quote: "hello",
-      },
     ]);
   });
 });

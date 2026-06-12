@@ -77,6 +77,51 @@ describe("tiny-share decode", () => {
     expect(await decodeTinyShare(fixedV1Payload)).toEqual(requireSanitized(legacyV1Canvas));
   });
 
+  test("decodes v1 payloads while stripping legacy generation and board summaries", async () => {
+    const legacyPayload = {
+      v: 1,
+      canvas: {
+        id: "legacy",
+        author: "Ada",
+        createdAt: "2026-06-01T00:00:00.000Z",
+        generation: {
+          item_summaries: [],
+          overall_summary: { title: "Summary", explanation: "Text", tags: [] },
+        },
+        pages: [
+          {
+            id: "page",
+            items: [
+              { id: "__summary__", type: "board_summary" },
+              { id: "note", type: "note", text: "hello" },
+            ],
+            layouts: {
+              lg: [
+                { i: "__summary__", x: 0, y: 0, w: 6, h: 4 },
+                { i: "note", x: 6, y: 0, w: 6, h: 4 },
+              ],
+              sm: [{ i: "__summary__", x: 0, y: 0, w: 1, h: 4 }],
+            },
+          },
+        ],
+      },
+    };
+    const payload = bytesToBase64Url(await gzipBytes(textEncoder.encode(JSON.stringify(legacyPayload))));
+
+    expect(await decodeTinyShare(payload)).toEqual({
+      id: "legacy",
+      author: "Ada",
+      createdAt: "2026-06-01T00:00:00.000Z",
+      pages: [
+        {
+          id: "page",
+          items: [{ id: "note", type: "note", text: "hello" }],
+          layouts: { lg: [{ i: "note", x: 6, y: 0, w: 6, h: 4 }], sm: [] },
+        },
+      ],
+    });
+  });
+
   test("rejects oversized compressed input", async () => {
     const payload = bytesToBase64Url(new Uint8Array(TINY_SHARE_MAX_COMPRESSED_BYTES + 1));
 

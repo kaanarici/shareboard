@@ -1,8 +1,6 @@
 # Shareboard
 
-Shareboard is a browser-first canvas for collecting URLs, notes, embeds, pasted SVG, and images, with optional AI summaries. It has no accounts and no server-side board storage until you explicitly share. Free side project — **not** a paid product.
-
-You bring your own [OpenAI](https://platform.openai.com/) key. The key is stored in your browser and sent to Shareboard's generation API only when you ask for a summary.
+Shareboard is a browser-first canvas for collecting URLs, notes, embeds, pasted SVG, and images. It has no accounts and no server-side board storage until you explicitly share. Free side project — **not** a paid product.
 
 ## Run locally
 
@@ -13,7 +11,7 @@ bun install
 bun run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000), set a display name, optionally add an API key, then use the app.
+Open [http://localhost:3000](http://localhost:3000), set a display name, then use the app.
 
 `npm start` also runs the dev server with hot reload. Use `bun run build && bun run preview` only when you want to serve the latest production build output.
 

@@ -1,4 +1,3 @@
-import { BOARD_SUMMARY_ITEM_ID } from "@/lib/types";
 import {
   getLocalShareObjectKey,
   isShareImageObjectKey,
@@ -7,9 +6,6 @@ import {
 import type {
   AuthorProfile,
   Canvas,
-  GenerateResponse,
-  GenerateRequestItem,
-  GenerateRequestPayload,
   GridLayouts,
   JsonItem,
   OGData,
@@ -39,9 +35,6 @@ export const SANITIZE_LIMITS = {
   maxUrlChars: 4096,
   maxOgTextChars: 300,
   maxOgImageChars: 2048,
-  maxSummaryChars: 12000,
-  maxSummaryItemChars: 800,
-  maxTags: 8,
   maxSocialUrlChars: 2048,
   maxJsonNameChars: 120,
   maxJsonChars: 256 * 1024,
@@ -131,59 +124,6 @@ export function sanitizeLayouts(value: unknown): GridLayouts | undefined {
   const sm = sanitizeList(layouts.sm);
   if (lg.length === 0 && sm.length === 0) return undefined;
   return { lg, sm };
-}
-
-export function sanitizeGeneration(value: unknown): GenerateResponse | undefined {
-  if (!value || typeof value !== "object") return undefined;
-  const input = value as Record<string, unknown>;
-  const itemSummaries = Array.isArray(input.item_summaries)
-    ? input.item_summaries
-        .map((entry) => {
-          if (!entry || typeof entry !== "object") return null;
-          const item = entry as Record<string, unknown>;
-          const item_id = trimText(item.item_id, 80);
-          const title = trimText(item.title, 160);
-          const summary = trimText(item.summary, SANITIZE_LIMITS.maxSummaryItemChars);
-          const source_type = trimText(item.source_type, 80);
-          const author = trimText(item.author, 160);
-          const key_quote = trimText(item.key_quote, 300);
-          if (!item_id || !title || !summary) return null;
-          return {
-            item_id,
-            title,
-            summary,
-            ...(source_type ? { source_type } : {}),
-            ...(author ? { author } : {}),
-            ...(key_quote ? { key_quote } : {}),
-          };
-        })
-        .filter((entry): entry is NonNullable<typeof entry> => !!entry)
-    : [];
-
-  const overall = input.overall_summary;
-  if (!overall || typeof overall !== "object") {
-    return itemSummaries.length > 0
-      ? {
-          item_summaries: itemSummaries,
-          overall_summary: { title: "Shareboard", explanation: "", tags: [] },
-        }
-      : undefined;
-  }
-
-  const summary = overall as Record<string, unknown>;
-  return {
-    item_summaries: itemSummaries,
-    overall_summary: {
-      title: trimText(summary.title, 160) || "Shareboard",
-      explanation: trimText(summary.explanation, SANITIZE_LIMITS.maxSummaryChars),
-      tags: Array.isArray(summary.tags)
-        ? summary.tags
-            .map((tag) => trimText(tag, 40))
-            .filter(Boolean)
-            .slice(0, SANITIZE_LIMITS.maxTags)
-        : [],
-    },
-  };
 }
 
 export function sanitizeAuthorProfile(value: unknown): AuthorProfile | undefined {
@@ -295,7 +235,7 @@ export function sanitizeSharedImageItem(
 
 export function sanitizeShareableCanvasItem(
   value: unknown,
-  options: { allowBlobImageUrls?: boolean; allowBoardSummary?: boolean } = {},
+  options: { allowBlobImageUrls?: boolean } = {},
 ): ShareableCanvasItem | null {
   if (!value || typeof value !== "object") return null;
   const type = trimText((value as Record<string, unknown>).type, 20);
@@ -303,14 +243,16 @@ export function sanitizeShareableCanvasItem(
   if (type === "note") return sanitizeNoteItem(value);
   if (type === "json") return sanitizeJsonItem(value);
   if (type === "image") return sanitizeSharedImageItem(value, { allowBlobUrl: options.allowBlobImageUrls });
-  if (
-    options.allowBoardSummary &&
-    type === "board_summary" &&
-    trimText((value as Record<string, unknown>).id, 80) === BOARD_SUMMARY_ITEM_ID
-  ) {
-    return { id: BOARD_SUMMARY_ITEM_ID, type: "board_summary" };
-  }
   return null;
+}
+
+function sanitizePageLayouts(value: unknown, items: readonly { id: string }[]): GridLayouts | undefined {
+  const layouts = sanitizeLayouts(value);
+  if (!layouts) return undefined;
+  const ids = new Set(items.map((item) => item.id));
+  const lg = layouts.lg.filter((layout) => ids.has(layout.i));
+  const sm = layouts.sm.filter((layout) => ids.has(layout.i));
+  return lg.length || sm.length ? { lg, sm } : undefined;
 }
 
 export function sanitizeShareRequestPayload(value: unknown): ShareRequestPayload | null {
@@ -322,12 +264,13 @@ export function sanitizeShareRequestPayload(value: unknown): ShareRequestPayload
         const page = entry as Record<string, unknown>;
         const id = trimText(page.id, 80);
         if (!id) return null;
+        const items = Array.isArray(page.items)
+          ? page.items.map(sanitizeShareRequestItem).filter((item): item is ShareRequestItem => !!item)
+          : [];
         return {
           id,
-          layouts: sanitizeLayouts(page.layouts),
-          items: Array.isArray(page.items)
-            ? page.items.map(sanitizeShareRequestItem).filter((item): item is ShareRequestItem => !!item)
-            : [],
+          layouts: sanitizePageLayouts(page.layouts, items),
+          items,
         };
       })
     : [];
@@ -337,7 +280,6 @@ export function sanitizeShareRequestPayload(value: unknown): ShareRequestPayload
   return {
     author: payload.author,
     authorProfile: payload.authorProfile,
-    generation: payload.generation,
     pages: cleanPages,
   };
 }
@@ -361,27 +303,25 @@ export function sanitizeTinyCanvas(value: unknown, limits = { maxPages: 12, maxI
                 })
                 .filter((item): item is ShareableCanvasItem => !!item)
             : [];
-          return id ? { id, items, layouts: sanitizeLayouts(page.layouts) } : null;
+          return id ? { id, items, layouts: sanitizePageLayouts(page.layouts, items) } : null;
         })
         .filter((page): page is NonNullable<typeof page> => !!page)
     : [];
 
   if (!pages.some((page) => page.items.length > 0)) return null;
   const authorProfile = sanitizeAuthorProfile(canvas.authorProfile);
-  const generation = sanitizeGeneration(canvas.generation);
   return {
     id: trimText(canvas.id, 80) || "tiny",
     author: trimText(canvas.author, SANITIZE_LIMITS.maxAuthorChars) || "Anonymous",
     ...(authorProfile ? { authorProfile } : {}),
     pages,
-    ...(generation ? { generation } : {}),
     createdAt: trimText(canvas.createdAt, 40) || new Date().toISOString(),
   };
 }
 
 export function sanitizePublicCanvasManifest(
   value: unknown,
-  options: { allowBlobImageUrls?: boolean; allowBoardSummary?: boolean } = {},
+  options: { allowBlobImageUrls?: boolean } = {},
 ): Canvas | null {
   if (!value || typeof value !== "object") return null;
   const canvas = value as Record<string, unknown>;
@@ -395,19 +335,17 @@ export function sanitizePublicCanvasManifest(
               .map((item) => sanitizeShareableCanvasItem(item, options))
               .filter((item): item is ShareableCanvasItem => !!item)
           : [];
-        return id ? { id, items, layouts: sanitizeLayouts(page.layouts) } : null;
+        return id ? { id, items, layouts: sanitizePageLayouts(page.layouts, items) } : null;
       })
     : [];
   const cleanPages = pages.filter((page): page is NonNullable<typeof page> => !!page);
   if (!cleanPages.some((page) => page.items.length > 0)) return null;
   const authorProfile = sanitizeAuthorProfile(canvas.authorProfile);
-  const generation = sanitizeGeneration(canvas.generation);
   return {
     id: trimText(canvas.id, 80) || "shared",
     author: trimText(canvas.author, SANITIZE_LIMITS.maxAuthorChars) || "Anonymous",
     ...(authorProfile ? { authorProfile } : {}),
     pages: cleanPages,
-    ...(generation ? { generation } : {}),
     createdAt: trimText(canvas.createdAt, 40) || new Date().toISOString(),
     ...(typeof canvas.deleteTokenHash === "string" ? { deleteTokenHash: canvas.deleteTokenHash } : {}),
     ...((() => {
@@ -415,22 +353,4 @@ export function sanitizePublicCanvasManifest(
       return url ? { previewUrl: url } : {};
     })()),
   };
-}
-
-export function sanitizeGenerateRequestPayload(value: unknown): GenerateRequestPayload | null {
-  if (!value || typeof value !== "object") return null;
-  const rawItems = (value as Record<string, unknown>).items;
-  if (!Array.isArray(rawItems)) return null;
-  const items = rawItems
-    .map((item): GenerateRequestItem | null => {
-      if (!item || typeof item !== "object") return null;
-      const type = trimText((item as Record<string, unknown>).type, 20);
-      if (type === "url") return sanitizeUrlItem(item);
-      if (type === "note") return sanitizeNoteItem(item);
-      if (type === "json") return sanitizeJsonItem(item);
-      if (type === "image") return sanitizeShareRequestImageItem(item);
-      return null;
-    })
-    .filter((item): item is GenerateRequestItem => !!item);
-  return { items };
 }

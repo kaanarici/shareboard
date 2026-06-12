@@ -62,29 +62,19 @@ export interface JsonItem {
   size: number;
 }
 
-/** Synthetic item for AI overall summary — same grid behavior as other cards; data lives on `generation`. */
-export const BOARD_SUMMARY_ITEM_ID = "__summary__" as const;
-
-export interface BoardSummaryItem {
-  id: typeof BOARD_SUMMARY_ITEM_ID;
-  type: "board_summary";
-}
-
 export type EditorCanvasItem =
   | UrlItem
   | DraftImageItem
   | SharedImageItem
   | JsonItem
-  | NoteItem
-  | BoardSummaryItem;
+  | NoteItem;
 export type CanvasItem = EditorCanvasItem;
 
 export type ShareableCanvasItem =
   | UrlItem
   | SharedImageItem
   | JsonItem
-  | NoteItem
-  | BoardSummaryItem;
+  | NoteItem;
 export type SharedCanvasItem = ShareableCanvasItem;
 
 export type ShareRequestImageItem = Pick<
@@ -99,26 +89,6 @@ export interface OGData {
   image?: string;
   siteName?: string;
   author?: string;
-}
-
-export interface ItemSummary {
-  item_id: string;
-  title: string;
-  summary: string;
-  source_type?: string;
-  author?: string;
-  key_quote?: string;
-}
-
-export interface OverallSummary {
-  title: string;
-  explanation: string;
-  tags: string[];
-}
-
-export interface GenerateResponse {
-  item_summaries: ItemSummary[];
-  overall_summary: OverallSummary;
 }
 
 export interface GridLayouts {
@@ -152,7 +122,6 @@ export interface PublicCanvasManifest {
   author: string;
   authorProfile?: AuthorProfile;
   pages: ShareableBoardPage[];
-  generation?: GenerateResponse;
   createdAt: string;
   deleteTokenHash?: string;
   previewUrl?: string;
@@ -162,7 +131,6 @@ export type Canvas = PublicCanvasManifest;
 export interface ShareRequestPayload {
   author?: unknown;
   authorProfile?: unknown;
-  generation?: unknown;
   pages: Array<{
     id: string;
     layouts?: GridLayouts;
@@ -259,11 +227,4 @@ export function isDraftImageItem(item: CanvasItem): item is DraftImageItem {
 
 export function isShareCreateResponse(value: unknown): value is ShareCreateResponse {
   return isRecord(value) && typeof value.id === "string" && typeof value.deleteToken === "string";
-}
-
-export type GenerateRequestImageItem = Pick<SharedImageItem, "id" | "type" | "caption">;
-export type GenerateRequestItem = UrlItem | NoteItem | JsonItem | GenerateRequestImageItem;
-
-export interface GenerateRequestPayload {
-  items: GenerateRequestItem[];
 }

@@ -49,7 +49,7 @@ function isBase64UrlBytes(value: unknown, bytes: number) {
 
 function sanitizeHandoffCanvas(value: unknown): Canvas | null {
   return (
-    sanitizePublicCanvasManifest(value, { allowBoardSummary: true }) ??
+    sanitizePublicCanvasManifest(value) ??
     sanitizeTinyCanvas(value)
   );
 }

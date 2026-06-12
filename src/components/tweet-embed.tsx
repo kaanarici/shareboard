@@ -1,6 +1,6 @@
 
 import { useCallback, useRef } from "react";
-import { Tweet } from "react-tweet";
+import { Tweet, TweetSkeleton } from "react-tweet";
 import { extractTweetId } from "@/lib/youtube";
 
 export function TweetEmbed({
@@ -60,7 +60,16 @@ export function TweetEmbed({
     >
       <div className="relative w-full min-w-0 max-w-[550px] h-full min-h-0 overflow-y-auto overflow-x-hidden rounded-lg">
         <div ref={contentRef} className="tweet-embed-container h-full w-full min-w-0">
-          <Tweet id={id} />
+          <Tweet
+            id={id}
+            apiUrl={`/api/tweet?id=${encodeURIComponent(id)}`}
+            fallback={<TweetSkeleton />}
+            components={{
+              TweetNotFound: ({ error }: { error?: { status?: number } }) => {
+                return !error || error.status === 404 ? <FallbackCard url={url} /> : <></>;
+              },
+            }}
+          />
         </div>
         {interactionOverlay && (
           <div

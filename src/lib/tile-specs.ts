@@ -22,8 +22,8 @@ export const YOUTUBE_MAX_WIDTH_PX = 640;
 
 /**
  * Derive a TileSpec from a CanvasItem. Aspect-locked types (tweet, image,
- * youtube) get exact ratios where known; flex types (note, board_summary, OG
- * cards) use preferredSpan/preferredRows hints for the packer.
+ * youtube) get exact ratios where known; flex types (note and OG cards) use
+ * preferredSpan/preferredRows hints for the packer.
  *
  * `aspectCache` maps tweet/image keys to measured pxW/pxH ratios. When a cache
  * hit is available for a tweet, its tile places correctly on first paint
@@ -33,10 +33,6 @@ export function tileSpecFor(
   item: CanvasItem,
   aspectCache?: ReadonlyMap<string, number>,
 ): TileSpec {
-  if (item.type === "board_summary") {
-    return { preferredSpan: LG_COLS, preferredRows: 10, minSpan: 6, minRows: 6 };
-  }
-
   if (item.type === "url" && item.platform === "twitter") {
     const tweetId = extractTweetId(item.url);
     const cachedAspect = tweetId ? aspectCache?.get(`tweet:${tweetId}`) : undefined;

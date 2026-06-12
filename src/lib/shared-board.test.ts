@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { hydrateSharedBoardPages, resolveStoredSharedBoard } from "./shared-board";
-import { BOARD_SUMMARY_ITEM_ID } from "./types";
 
 describe("shared-board", () => {
   test("resolves stored board payloads and locked stubs", () => {
@@ -25,27 +24,23 @@ describe("shared-board", () => {
     expect(resolveStoredSharedBoard({ nope: true })).toBeNull();
   });
 
-  test("hydrates first page summary card and default layouts", () => {
+  test("hydrates stored pages without synthetic summary cards", () => {
     const pages = hydrateSharedBoardPages({
       id: "board",
       author: "Ada",
       createdAt: "2026-04-27T00:00:00.000Z",
-      generation: {
-        item_summaries: [],
-        overall_summary: { title: "Summary", explanation: "Text", tags: [] },
-      },
       pages: [
         { id: "p1", items: [{ id: "note", type: "note", text: "hello" }] },
         {
           id: "p2",
-          items: [{ id: BOARD_SUMMARY_ITEM_ID, type: "board_summary" }],
-          layouts: { lg: [{ i: BOARD_SUMMARY_ITEM_ID, x: 0, y: 0, w: 6, h: 4 }], sm: [] },
+          items: [{ id: "json", type: "json", name: "data.json", text: "{}", size: 2 }],
+          layouts: { lg: [{ i: "json", x: 0, y: 0, w: 6, h: 4 }], sm: [] },
         },
       ],
     });
 
-    expect(pages[0]?.items.map((item) => item.id)).toEqual(["note", BOARD_SUMMARY_ITEM_ID]);
+    expect(pages[0]?.items.map((item) => item.id)).toEqual(["note"]);
     expect(pages[0]?.layouts).toEqual({ lg: [], sm: [] });
-    expect(pages[1]?.items).toEqual([{ id: BOARD_SUMMARY_ITEM_ID, type: "board_summary" }]);
+    expect(pages[1]?.items).toEqual([{ id: "json", type: "json", name: "data.json", text: "{}", size: 2 }]);
   });
 });

@@ -57,7 +57,7 @@ export const notify = {
 /**
  * Long-running task toast. Renders a spinner + message immediately; the caller
  * settles it with success/error which transitions the icon in place (same id ⇒
- * sonner animates the swap). Use for flows like "Summarizing" → "Summary ready".
+ * sonner animates the swap). Use for flows that report progress, completion, or failure.
  */
 export function notifyProgress(message: string) {
   const id = `sb-progress-${Math.random().toString(36).slice(2, 10)}`;

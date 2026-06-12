@@ -46,7 +46,7 @@ describe("local draft policy", () => {
       },
     ];
 
-    const snapshot = __draftPolicyForTests.createStoredDraftSnapshot(pages, null, { kind: "draft" });
+    const snapshot = __draftPolicyForTests.createStoredDraftSnapshot(pages, { kind: "draft" });
     const storedItem = snapshot.pages[0]?.items[0] as Record<string, unknown>;
 
     expect(storedItem.previewUrl).toBeUndefined();
@@ -68,7 +68,7 @@ describe("local draft policy", () => {
         ],
       },
     ];
-    const snapshot = __draftPolicyForTests.createStoredDraftSnapshot(pages, null, { kind: "draft" });
+    const snapshot = __draftPolicyForTests.createStoredDraftSnapshot(pages, { kind: "draft" });
 
     const restored = __draftPolicyForTests.restoreStoredDraftSnapshot(snapshot, {
       createPreviewUrl() {
@@ -107,7 +107,7 @@ describe("local draft policy", () => {
       },
     ];
 
-    const storedLayout = __draftPolicyForTests.createStoredDraftSnapshot(pages, null).pages[0]?.layouts.lg[0] as
+    const storedLayout = __draftPolicyForTests.createStoredDraftSnapshot(pages).pages[0]?.layouts.lg[0] as
       | Record<string, unknown>
       | undefined;
 
@@ -131,10 +131,39 @@ describe("local draft policy", () => {
       },
     ];
 
-    expect(draftSignature(base, null, { kind: "draft" })).toBe(
-      draftSignature(moved, null, { kind: "draft" }),
-    );
+    expect(draftSignature(base, { kind: "draft" })).toBe(draftSignature(moved, { kind: "draft" }));
     expect(draftLayoutSignature(base)).not.toBe(draftLayoutSignature(moved));
+  });
+
+  test("restores legacy snapshots without generation or board summary items", () => {
+    const restored = __draftPolicyForTests.restoreStoredDraftSnapshot({
+      v: 2,
+      generation: {
+        item_summaries: [],
+        overall_summary: { title: "Summary", explanation: "Text", tags: [] },
+      },
+      pages: [
+        {
+          id: "p1",
+          items: [
+            { id: "__summary__", type: "board_summary" },
+            { id: "note", type: "note", text: "hello" },
+          ],
+          layouts: {
+            lg: [
+              { i: "__summary__", x: 0, y: 0, w: 6, h: 4 },
+              { i: "note", x: 6, y: 0, w: 6, h: 4 },
+            ],
+            sm: [{ i: "__summary__", x: 0, y: 0, w: 1, h: 4 }],
+          },
+        },
+      ],
+      boardOrigin: { kind: "draft" },
+    } as never);
+
+    expect(restored?.pages[0]?.items).toEqual([{ id: "note", type: "note", text: "hello" }]);
+    expect(restored?.pages[0]?.layouts).toEqual({ lg: [{ i: "note", x: 6, y: 0, w: 6, h: 4 }], sm: [] });
+    expect(restored && "generation" in restored).toBe(false);
   });
 });
 
@@ -165,7 +194,6 @@ describe("local library store", () => {
       name: "My board",
       savedAt: 1000,
       pages: noteBoard("hello"),
-      generation: null,
     });
     expect(evicted).toEqual([]);
     expect(saved).toEqual({ id: "b1", name: "My board", savedAt: 1000 });
@@ -191,14 +219,12 @@ describe("local library store", () => {
       name: "old",
       savedAt: 1,
       pages: noteBoard("a"),
-      generation: null,
     });
     await __libraryPolicyForTests.putLibraryBoard(store, {
       id: "new",
       name: "new",
       savedAt: 2,
       pages: noteBoard("b"),
-      generation: null,
     });
     const list = await __libraryPolicyForTests.listLibrary(store);
     expect(list.map((board) => board.id)).toEqual(["new", "old"]);
@@ -225,7 +251,6 @@ describe("local library store", () => {
       name: "img board",
       savedAt: 1,
       pages,
-      generation: null,
     });
 
     const storedItem = (await store.get("b1")).snapshot.pages[0].items[0] as Record<string, unknown>;
@@ -252,7 +277,6 @@ describe("local library store", () => {
         name: `b${i}`,
         savedAt: i,
         pages: noteBoard(`n${i}`),
-        generation: null,
       });
     }
 
@@ -261,7 +285,6 @@ describe("local library store", () => {
       name: "newest",
       savedAt: cap,
       pages: noteBoard("newest"),
-      generation: null,
     });
 
     expect(evicted).toEqual([{ id: "b0", name: "b0", savedAt: 0 }]);
@@ -278,7 +301,6 @@ describe("local library store", () => {
       name: "b1",
       savedAt: 1,
       pages: noteBoard("a"),
-      generation: null,
     });
     await store.delete("b1");
     expect(await __libraryPolicyForTests.listLibrary(store)).toEqual([]);

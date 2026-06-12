@@ -8,7 +8,6 @@ import {
   estimateContainerWidth,
 } from "@/lib/tile-specs";
 import {
-  BOARD_SUMMARY_ITEM_ID,
   isDraftImageItem,
   type BoardPage,
   type Canvas as SharedCanvasData,
@@ -80,18 +79,11 @@ function clampSingleItemLayoutsToBudget(layouts: GridLayouts, maxRows: number): 
 
 export function editorPagesFromCanvas(canvas: SharedCanvasData): BoardPage[] {
   if (canvas.pages.length === 0) return [emptyBoardPage()];
-  return canvas.pages.map((page, idx) => {
-    const baseItems = page.items.filter((item) => item.type !== "board_summary");
-    const items: CanvasItem[] =
-      idx === 0 && canvas.generation
-        ? [...baseItems, { id: BOARD_SUMMARY_ITEM_ID, type: "board_summary" }]
-        : baseItems;
-    return {
-      id: page.id || nanoid(8),
-      items,
-      layouts: page.layouts ?? { lg: [], sm: [] },
-    };
-  });
+  return canvas.pages.map((page) => ({
+    id: page.id || nanoid(8),
+    items: page.items,
+    layouts: page.layouts ?? { lg: [], sm: [] },
+  }));
 }
 
 function draftPreviewUrlsOnPage(page: BoardPage): string[] {
@@ -154,9 +146,8 @@ export function duplicateItemWithSpillToPages({
   maxRows: number;
   adapter?: PreviewUrlAdapter;
 }): { pages: BoardPage[]; landedIndex: number; newId: string } | null {
-  if (id === BOARD_SUMMARY_ITEM_ID) return null;
   const source = pages[activePage]?.items.find((item) => item.id === id);
-  if (!source || source.type === "board_summary") return null;
+  if (!source) return null;
   const newId = nanoid(10);
   const copy = isDraftImageItem(source)
     ? { ...source, id: newId, previewUrl: adapter.create(source.file) }

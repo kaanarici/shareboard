@@ -2,7 +2,7 @@ import { lazy, Suspense, useState, useCallback, useRef, useMemo, useEffect } fro
 import { useMountEffect } from "@/lib/use-mount-effect";
 import { nanoid } from "nanoid";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { notify, notifyProgress, notifyWithUndo } from "@/lib/toast";
+import { notify, notifyWithUndo } from "@/lib/toast";
 import { Canvas } from "@/components/canvas";
 import { Toolbar } from "@/components/toolbar";
 import { SetupCards } from "@/components/setup-dialog";
@@ -25,12 +25,11 @@ import {
   duplicateItemWithSpillToPages,
   editorPagesFromCanvas,
   emptyBoardPage,
-  packPageLayouts,
   pruneEmptyPages,
   removeItemsFromPage,
   revokeDraftImagePreviews,
 } from "@/lib/board-lifecycle";
-import { getApiKey, getName, getProfile, isSetup, useSyncedSetting } from "@/lib/store";
+import { getName, getProfile, isSetup } from "@/lib/store";
 import {
   clearLocalDraft,
   deleteLibraryBoard,
@@ -56,10 +55,9 @@ import type {
   BoardPage,
   Canvas as SharedCanvasData,
   CanvasItem,
-  GenerateResponse,
   OGData,
 } from "@/lib/types";
-import { BOARD_SUMMARY_ITEM_ID, isDraftImageItem } from "@/lib/types";
+import { isDraftImageItem } from "@/lib/types";
 import { IMAGE_POLICY, formatBytes, optimizeImageForShare } from "@/lib/image-policy";
 import { JSON_POLICY, isJsonFile, jsonBytesForItems, jsonItemFromFile } from "@/lib/json-policy";
 import { copyText } from "@/lib/clipboard";
@@ -67,7 +65,6 @@ import { readErrorMessage } from "@/lib/fetch-helpers";
 import type { BoardOrigin } from "@/lib/board-origin";
 import { useShareFlows } from "@/components/use-share-flows";
 import { importFromUrl } from "@/lib/board-import";
-import { sanitizeGeneration } from "@/lib/canvas-sanitize";
 
 const LockedShareDialog = lazy(() =>
   import("@/components/locked-share-dialog").then((module) => ({ default: module.LockedShareDialog })),
@@ -75,6 +72,19 @@ const LockedShareDialog = lazy(() =>
 
 // Keep uqr out of the eager bundle — it only loads when the share dialog opens.
 const QrCodeView = lazy(() => import("@/components/qr-code"));
+
+/** A compact, readable rendering of a share URL: "host.com/s · …a1b2c3". */
+function prettyShareUrl(raw: string): string {
+  try {
+    const u = new URL(raw);
+    const host = u.hostname.replace(/^www\./, "");
+    const tail = (u.hash || u.pathname).replace(/^[#/]+/, "").replace(/^[a-z]=/, "");
+    const short = tail.length > 8 ? `…${tail.slice(-8)}` : tail;
+    return short ? `${host}${u.pathname === "/s" ? "/s" : u.pathname} · ${short}` : `${host}${u.pathname}`;
+  } catch {
+    return raw.length > 48 ? `${raw.slice(0, 24)}…${raw.slice(-12)}` : raw;
+  }
+}
 
 function findSvgSource(html: string | null, text: string | null) {
   return html?.match(/<svg[\s\S]*<\/svg>/i)?.[0] ?? (text?.startsWith("<svg") ? text : null);
@@ -115,7 +125,6 @@ function looksLikeJsonFilename(text: string) {
 }
 
 function cloneCanvasItem(item: CanvasItem): CanvasItem | null {
-  if (item.id === BOARD_SUMMARY_ITEM_ID || item.type === "board_summary") return null;
   const id = nanoid(10);
   if (isDraftImageItem(item)) {
     return { ...item, id, previewUrl: URL.createObjectURL(item.file) };
@@ -195,10 +204,8 @@ export function Home() {
   const isMobile = useIsMobile();
 
   const [pages, setPages] = useState<BoardPage[]>(() => [emptyBoardPage()]);
-  const [generation, setGeneration] = useState<GenerateResponse | null>(null);
   const [boardOrigin, setBoardOrigin] = useState<BoardOrigin>({ kind: "draft" });
   const [needsSetup, setNeedsSetup] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [deleteDialogIds, setDeleteDialogIds] = useState<string[] | null>(null);
@@ -221,7 +228,6 @@ export function Home() {
   const activePageRef = useRef(0);
   const selectedIdsRef = useRef<string[]>([]);
   const pendingImageBytesRef = useRef(0);
-  const generateInFlightRef = useRef(false);
   const shareIngestedRef = useRef(false);
   const sharedFilesIngestedRef = useRef(false);
   const clipIngestedRef = useRef(false);
@@ -230,8 +236,6 @@ export function Home() {
   // it doesn't trigger renders.
   const pagesRef = useRef<BoardPage[]>([]);
   pagesRef.current = pages;
-  const generationRef = useRef<GenerateResponse | null>(null);
-  generationRef.current = generation;
   const boardOriginRef = useRef<BoardOrigin>({ kind: "draft" });
   boardOriginRef.current = boardOrigin;
   // Latest-ref because restoreBoard/newBoard are defined before useShareFlows
@@ -239,15 +243,14 @@ export function Home() {
   const clearLastShareUrlRef = useRef<() => void>(() => {});
 
   // Shared restore side effects: drop the locked board, the stale QR link, and
-  // the current selection, then swap in the new pages/generation/origin.
+  // the current selection, then swap in the new pages/origin.
   const applyRestoredBoard = useCallback(
-    (nextPages: BoardPage[], nextGeneration: GenerateResponse | null, origin: BoardOrigin, dispose?: () => void) => {
+    (nextPages: BoardPage[], origin: BoardOrigin, dispose?: () => void) => {
       lockedDisposeRef.current?.();
       lockedDisposeRef.current = dispose ?? null;
       revokeDraftImagePreviews(pagesRef.current);
       clearLastShareUrlRef.current();
       setPages(nextPages);
-      setGeneration(nextGeneration);
       setBoardOrigin(origin);
       setSelectedIds([]);
       navigate({ search: {}, replace: false });
@@ -257,7 +260,7 @@ export function Home() {
 
   const restoreBoard = useCallback(
     (canvas: SharedCanvasData, origin: BoardOrigin = { kind: "draft" }, dispose?: () => void) =>
-      applyRestoredBoard(editorPagesFromCanvas(canvas), canvas.generation ?? null, origin, dispose),
+      applyRestoredBoard(editorPagesFromCanvas(canvas), origin, dispose),
     [applyRestoredBoard],
   );
 
@@ -272,13 +275,10 @@ export function Home() {
   }, []);
 
   const newBoard = useCallback(() => {
-    const empty = pagesRef.current.every(
-      (p) => p.items.filter((i) => i.type !== "board_summary").length === 0,
-    );
+    const empty = pagesRef.current.every((p) => p.items.length === 0);
     if (empty) return;
     const prev = {
       pages: pagesRef.current,
-      generation: generationRef.current,
       origin: boardOriginRef.current,
       selectedIds: selectedIdsRef.current,
       activePage: activePageRef.current,
@@ -288,13 +288,11 @@ export function Home() {
     clearLastShareUrlRef.current();
     navigate({ search: {}, replace: false });
     setPages([emptyBoardPage()]);
-    setGeneration(null);
     setBoardOrigin({ kind: "draft" });
     setSelectedIds([]);
     void clearLocalDraft();
     notifyWithUndo("New board", () => {
       setPages(prev.pages);
-      setGeneration(prev.generation);
       setBoardOrigin(prev.origin);
       setSelectedIds(prev.selectedIds);
       navigate({ search: prev.activePage === 0 ? {} : { page: prev.activePage + 1 }, replace: false });
@@ -303,14 +301,14 @@ export function Home() {
 
   const saveToLibrary = useCallback(async () => {
     const p = pagesRef.current;
-    const hasContent = p.some((page) => page.items.some((item) => item.type !== "board_summary"));
+    const hasContent = p.some((page) => page.items.length > 0);
     if (!hasContent) return;
     const suggested = defaultLibraryName(p);
     const input = window.prompt("Name this board", suggested);
     if (input === null) return;
     const name = input.trim() || suggested;
     try {
-      const { saved, evicted } = await saveBoardToLibrary(name, p, generationRef.current);
+      const { saved, evicted } = await saveBoardToLibrary(name, p);
       setLibraryBoards(await listLibraryBoards());
       notify.success(
         evicted.length > 0
@@ -329,7 +327,7 @@ export function Home() {
         notify.error("Couldn't open that saved board");
         return;
       }
-      applyRestoredBoard(snapshot.pages, snapshot.generation, { kind: "draft" });
+      applyRestoredBoard(snapshot.pages, { kind: "draft" });
       notify.success("Board opened");
     },
     [applyRestoredBoard],
@@ -370,16 +368,14 @@ export function Home() {
   const sendToDevice = useCallback(async () => {
     if (handoffSending) return;
     const authorProfile = getProfile();
-    const payload = collectSharePayload({ pages, generation, author: getName(), authorProfile });
-    // canUseTinyShare flags image items (board_summary is already dropped by
-    // collectSharePayload). Handoff can only carry text/url/json boards today.
+    const payload = collectSharePayload({ pages, author: getName(), authorProfile });
+    // Handoff can only carry text/url/json boards today.
     if (!canUseTinyShare({ pages: payload.pages } as unknown as SharedCanvasData)) {
       notify.error("Boards with images can't be handed off yet");
       return;
     }
     const canvas = canvasFromTextOnlyPayload({
       payload,
-      generation,
       authorProfile,
       createdAt: new Date().toISOString(),
     });
@@ -416,7 +412,7 @@ export function Home() {
     } finally {
       setHandoffSending(false);
     }
-  }, [pages, generation, handoffSending]);
+  }, [pages, handoffSending]);
 
   const {
     shareState,
@@ -436,7 +432,6 @@ export function Home() {
     markShareCopied,
   } = useShareFlows({
     pages,
-    generation,
     boardOrigin,
     onRestoreBoard: restoreBoard,
     onOriginChange: setBoardOrigin,
@@ -462,10 +457,9 @@ export function Home() {
     [navigate, pages.length]
   );
 
-  const hasApiKey = useSyncedSetting(() => !!getApiKey().trim());
   const itemsOnActive = pages[activePage]?.items ?? [];
   const totalContentItems = useMemo(
-    () => pages.reduce((n, p) => n + p.items.filter((i) => i.type !== "board_summary").length, 0),
+    () => pages.reduce((n, p) => n + p.items.length, 0),
     [pages]
   );
   const totalJsonBytes = useMemo(
@@ -498,22 +492,21 @@ export function Home() {
   }, [activePage, navigate, pages]);
 
   const currentDraftSig = useMemo(
-    () => draftSignature(pages, generation, boardOrigin),
-    [pages, generation, boardOrigin],
+    () => draftSignature(pages, boardOrigin),
+    [pages, boardOrigin],
   );
   const currentDraftLayoutSig = useMemo(() => draftLayoutSignature(pages), [pages]);
 
-  // Save current pages+generation+origin. Reads via refs so the callback identity is
+  // Save current pages+origin. Reads via refs so the callback identity is
   // stable across renders — important for the auto-save effect's deps.
   const writeDraft = useCallback(async (manual: boolean) => {
     const p = pagesRef.current;
-    const g = generationRef.current;
     const o = boardOriginRef.current;
-    const sig = draftSignature(p, g, o);
+    const sig = draftSignature(p, o);
     const layoutSig = draftLayoutSignature(p);
     setSaveState("saving");
     try {
-      await saveLocalDraft(p, g, o);
+      await saveLocalDraft(p, o);
       lastSavedSigRef.current = sig;
       lastSavedLayoutSigRef.current = layoutSig;
       setSaveState("saved");
@@ -529,18 +522,6 @@ export function Home() {
   const handleSaveClick = useCallback(() => {
     void writeDraft(true);
   }, [writeDraft]);
-
-  // Show the "Saved" word briefly after a save lands, then collapse to just
-  // the check icon — keeps the notch quiet once everything is in sync.
-  const [showSavedLabel, setShowSavedLabel] = useState(false);
-  useEffect(() => {
-    if (saveState === "saved") {
-      setShowSavedLabel(true);
-      const t = window.setTimeout(() => setShowSavedLabel(false), 1500);
-      return () => window.clearTimeout(t);
-    }
-    setShowSavedLabel(false);
-  }, [saveState]);
 
   // Auto-save with a short debounce. Content and layout signatures are tracked
   // separately so pure card moves persist without making rich editors noisy.
@@ -572,12 +553,11 @@ export function Home() {
         if (cancelled) return;
         if (draft) {
           setPages(draft.pages);
-          setGeneration(draft.generation);
           setBoardOrigin(draft.boardOrigin);
-          lastSavedSigRef.current = draftSignature(draft.pages, draft.generation, draft.boardOrigin);
+          lastSavedSigRef.current = draftSignature(draft.pages, draft.boardOrigin);
           lastSavedLayoutSigRef.current = draftLayoutSignature(draft.pages);
         } else {
-          lastSavedSigRef.current = draftSignature(pagesRef.current, null, { kind: "draft" });
+          lastSavedSigRef.current = draftSignature(pagesRef.current, { kind: "draft" });
           lastSavedLayoutSigRef.current = draftLayoutSignature(pagesRef.current);
         }
       })
@@ -891,12 +871,6 @@ export function Home() {
       if (nextActivePage !== activePage) {
         queueMicrotask(() => navigate({ search: nextActivePage === 0 ? {} : { page: nextActivePage + 1 }, replace: false }));
       }
-      if (idSet.has(BOARD_SUMMARY_ITEM_ID)) setGeneration(null);
-      setGeneration((g) =>
-        g
-          ? { ...g, item_summaries: g.item_summaries.filter((s) => !idSet.has(s.item_id)) }
-          : g
-      );
       setSelectedIds((prev) => prev.filter((x) => !idSet.has(x)));
     },
     [activePage, navigate]
@@ -911,7 +885,6 @@ export function Home() {
 
   const duplicateItem = useCallback(
     (pageIndex: number, id: string) => {
-      if (id === BOARD_SUMMARY_ITEM_ID) return;
       const source = pagesRef.current[pageIndex]?.items.find((item) => item.id === id);
       if (source?.type === "image" && mediaBytesForPages(pagesRef.current) + (source.size ?? 0) > IMAGE_POLICY.maxBoardBytes) {
         notify.error(`Boards can hold up to ${formatBytes(IMAGE_POLICY.maxBoardBytes)} of images`);
@@ -967,57 +940,6 @@ export function Home() {
     },
     [patchPage]
   );
-
-  const generate = useCallback(async () => {
-    if (generateInFlightRef.current) return;
-    if (!getApiKey().trim()) {
-      notify.error("Add an OpenAI API key in settings to summarize");
-      return;
-    }
-    const allItems = pages.flatMap((p) => p.items.filter((i) => i.type !== "board_summary"));
-    if (allItems.length === 0) return;
-    generateInFlightRef.current = true;
-    setIsGenerating(true);
-    const progress = notifyProgress("Summarizing");
-    try {
-      const generationItems = allItems.map((item) =>
-        item.type === "image"
-          ? { id: item.id, type: "image" as const, caption: item.caption }
-          : item
-      );
-      const res = await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-API-Key": getApiKey() },
-        body: JSON.stringify({ items: generationItems }),
-      });
-      if (!res.ok) {
-        progress.error(await readErrorMessage(res, "Generation failed"));
-        return;
-      }
-      const data = sanitizeGeneration((await res.json().catch(() => null)) as unknown);
-      if (!data) {
-        progress.error("Generation failed");
-        return;
-      }
-      setGeneration(data);
-      patchPage(0, (page) => {
-        if (page.items.some((i) => i.id === BOARD_SUMMARY_ITEM_ID)) return page;
-        const nextItems: CanvasItem[] = [
-          ...page.items,
-          { id: BOARD_SUMMARY_ITEM_ID, type: "board_summary" },
-        ];
-        const nextLayouts = packPageLayouts(nextItems, page.layouts, maxRows);
-        return { ...page, items: nextItems, layouts: nextLayouts };
-      });
-      setActivePage(0);
-      progress.success("Summary ready");
-    } catch {
-      progress.error("Failed to connect");
-    } finally {
-      generateInFlightRef.current = false;
-      setIsGenerating(false);
-    }
-  }, [pages, patchPage, maxRows, setActivePage]);
 
   const handleDropData = useCallback(
     (data: DataTransfer) => {
@@ -1208,9 +1130,7 @@ export function Home() {
 
     if ((e.metaKey || e.ctrlKey) && key === "c") {
       e.preventDefault();
-      const selected = itemsOnActive.filter(
-        (item) => selectedIds.includes(item.id) && item.type !== "board_summary",
-      );
+      const selected = itemsOnActive.filter((item) => selectedIds.includes(item.id));
       canvasClipboardRef.current = selected;
       if (selected.length > 0) {
         notify.success(selected.length > 1 ? "Copied items" : "Copied item");
@@ -1372,48 +1292,40 @@ export function Home() {
           <>
             <button
               type="button"
-              className="board-notch-action"
+              className="board-notch-action board-notch-action--icon"
               onClick={handleSaveClick}
               disabled={saveState === "saving"}
-              aria-label="Board autosaves to this browser — save now"
+              aria-label={
+                saveState === "saving"
+                  ? "Saving to this browser"
+                  : saveState === "saved"
+                  ? "Saved to this browser"
+                  : "Save to this browser now"
+              }
               title="Autosaves to this browser. Click to save now."
             >
-              <AnimatePresence mode="wait" initial={false}>
-                <motion.span
-                  key={saveState}
-                  className="board-notch-action-content"
-                  initial={{ opacity: 0, y: 3 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -3 }}
-                  transition={{ duration: 0.16, ease: "easeOut" }}
-                >
-                  {saveState === "saving" ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  ) : saveState === "saved" ? (
-                    <Check className="h-3.5 w-3.5" />
-                  ) : (
-                    <Save className="h-3.5 w-3.5" />
-                  )}
-                  <AnimatePresence initial={false}>
-                    {saveState !== "saved" || showSavedLabel ? (
-                      <motion.span
-                        key="label"
-                        initial={{ opacity: 0, width: 0 }}
-                        animate={{ opacity: 1, width: "auto" }}
-                        exit={{ opacity: 0, width: 0 }}
-                        transition={{ duration: 0.18, ease: "easeOut" }}
-                        style={{ display: "inline-block", overflow: "hidden", whiteSpace: "nowrap" }}
-                      >
-                        {saveState === "saving"
-                          ? "Saving"
-                          : saveState === "saved"
-                          ? "Saved"
-                          : "Save"}
-                      </motion.span>
-                    ) : null}
-                  </AnimatePresence>
-                </motion.span>
-              </AnimatePresence>
+              {/* One icon, cross-faded by state: spinner → check → save. No text,
+                  no width animation — the chip never reflows as autosave ticks. */}
+              <span className="board-notch-icon-swap" aria-hidden>
+                <AnimatePresence initial={false} mode="popLayout">
+                  <motion.span
+                    key={saveState}
+                    initial={{ opacity: 0, scale: 0.6 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.6 }}
+                    transition={{ type: "spring", duration: 0.3, bounce: 0 }}
+                    style={{ display: "inline-flex" }}
+                  >
+                    {saveState === "saving" ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : saveState === "saved" ? (
+                      <Check className="h-3.5 w-3.5" />
+                    ) : (
+                      <Save className="h-3.5 w-3.5" />
+                    )}
+                  </motion.span>
+                </AnimatePresence>
+              </span>
             </button>
             <span aria-hidden className="board-notch-divider" />
           </>
@@ -1471,7 +1383,6 @@ export function Home() {
         renderPage={(page, i, isActive) => (
           <Canvas
             items={page.items}
-            generation={generation}
             layouts={page.layouts}
             maxRows={maxRows}
             selectedIds={isActive ? selectedIds : undefined}
@@ -1490,8 +1401,6 @@ export function Home() {
 
       <Toolbar
         hasItems={hasItems}
-        hasApiKey={hasApiKey}
-        isGenerating={isGenerating}
         locked={needsSetup}
         pageCount={pages.length}
         activePage={activePage}
@@ -1502,7 +1411,6 @@ export function Home() {
         onAddFile={(file) => void addFile(file)}
         onPasteLink={openPasteDialog}
         onImport={openImportDialog}
-        onGenerate={generate}
         onShare={() => setLockedShareOpen(true)}
         onNewBoard={newBoard}
         onSaveToLibrary={() => void saveToLibrary()}
@@ -1664,12 +1572,25 @@ export function Home() {
               <QrCodeView url={manualShareUrl} />
             </Suspense>
           )}
-          <input
-            readOnly
-            value={manualShareUrl}
-            onFocus={(e) => e.currentTarget.select()}
-            className="setup-dialog-tile-input"
-          />
+          {/* Tiny-share links are long opaque fragments; showing the raw string
+              just looks broken. Display a readable host + ellipsis and copy the
+              real URL on tap. */}
+          <button
+            type="button"
+            className="share-link-chip"
+            onClick={async () => {
+              if (await copyText(manualShareUrl)) {
+                markShareCopied();
+                notify.success("Link copied to clipboard");
+              } else {
+                notify.error("Couldn't copy — try again");
+              }
+            }}
+            title={manualShareUrl}
+          >
+            <span className="share-link-chip-text">{prettyShareUrl(manualShareUrl)}</span>
+            <Copy className="h-3.5 w-3.5 shrink-0 opacity-60" aria-hidden />
+          </button>
           <DialogFooter className="mt-2">
             <DialogClose render={<Button type="button" variant="outline" />}>Done</DialogClose>
             <Button
@@ -1680,12 +1601,12 @@ export function Home() {
                   markShareCopied();
                   notify.success("Link copied to clipboard");
                 } else {
-                  notify.error("Select the link to copy it");
+                  notify.error("Couldn't copy — try again");
                 }
               }}
             >
               <Copy className="h-4 w-4" />
-              Copy
+              Copy link
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1715,7 +1636,7 @@ export function Home() {
             <span className="select-all font-mono text-[1.75rem] font-semibold leading-tight tracking-[0.06em] tabular-nums">
               {handoffCode && formatHandoffCode(handoffCode)}
             </span>
-            <span className="text-xs text-muted-foreground">Expires in 15 minutes · One-time use</span>
+            <span className="text-xs text-muted-foreground">Expires in 1 hour · One-time use</span>
           </div>
           <DialogFooter className="mt-2">
             <DialogClose render={<Button type="button" variant="outline" />}>Done</DialogClose>

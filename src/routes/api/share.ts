@@ -22,7 +22,6 @@ import { RATE_LIMIT_BINDINGS, takeRateLimit } from "@/lib/rate-limit";
 import {
   SANITIZE_LIMITS,
   sanitizeAuthorProfile,
-  sanitizeGeneration,
   sanitizePublicCanvasManifest,
   sanitizeShareRequestPayload,
   trimText,
@@ -666,7 +665,6 @@ export const Route = createFileRoute("/api/share")({
             author: trimText(payload.author, SANITIZE_LIMITS.maxAuthorChars) || "Anonymous",
             ...(authorProfile ? { authorProfile } : {}),
             pages,
-            generation: sanitizeGeneration(payload.generation),
             createdAt: new Date().toISOString(),
             deleteTokenHash: hashToken(deleteToken),
             ...(previewUrl ? { previewUrl } : {}),

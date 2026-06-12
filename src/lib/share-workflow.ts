@@ -11,7 +11,7 @@ import {
   type ShareHistoryKind,
 } from "@/lib/share-prep";
 import { createTinyShareUrl } from "@/lib/tiny-share";
-import { isDraftImageItem, type AuthorProfile, type BoardPage, type Canvas, type GenerateResponse } from "@/lib/types";
+import { isDraftImageItem, type AuthorProfile, type BoardPage, type Canvas } from "@/lib/types";
 import type { BoardHistoryEntry } from "@/lib/store";
 
 type ShareMetadata = {
@@ -39,7 +39,6 @@ export type PublicShareDraft =
 
 export async function preparePublicShare({
   pages,
-  generation,
   boardOrigin,
   author,
   authorProfile,
@@ -49,7 +48,6 @@ export async function preparePublicShare({
   now = new Date(),
 }: {
   pages: BoardPage[];
-  generation: GenerateResponse | null;
   boardOrigin: BoardOrigin;
   author: string;
   authorProfile: AuthorProfile;
@@ -58,7 +56,7 @@ export async function preparePublicShare({
   previewRoot?: HTMLElement | null;
   now?: Date;
 }): Promise<PublicShareDraft> {
-  const payload = collectSharePayload({ pages, generation, author, authorProfile });
+  const payload = collectSharePayload({ pages, author, authorProfile });
   const itemCount = countPayloadItems(payload);
   const metadata: ShareMetadata = {
     title: getBoardTitle(payload.pages),
@@ -71,7 +69,6 @@ export async function preparePublicShare({
   if (!hasImageItems(pages) && !isReplaceStored) {
     const canvas = canvasFromTextOnlyPayload({
       payload,
-      generation,
       authorProfile,
       createdAt: metadata.createdAt,
     });
@@ -113,7 +110,6 @@ export async function preparePublicShare({
 
 export async function prepareLockedShare({
   pages,
-  generation,
   boardOrigin,
   pin,
   author,
@@ -121,7 +117,6 @@ export async function prepareLockedShare({
   now = new Date(),
 }: {
   pages: BoardPage[];
-  generation: GenerateResponse | null;
   boardOrigin: BoardOrigin;
   pin: string;
   author: string;
@@ -138,7 +133,6 @@ export async function prepareLockedShare({
   for (const page of pages) {
     const items: Canvas["pages"][number]["items"] = [];
     for (const item of page.items) {
-      if (item.type === "board_summary") continue;
       if (item.type !== "image") {
         items.push(item);
         continue;
@@ -172,7 +166,6 @@ export async function prepareLockedShare({
     author: author || "Anonymous",
     authorProfile,
     pages: securePages,
-    ...(generation ? { generation } : {}),
     createdAt,
   };
   const locked = await createLockedSharePackage(pin, canvas, imageUploads);
@@ -232,7 +225,6 @@ export function createHistoryEntry({
 function appendDraftImages(form: FormData, pages: BoardPage[]) {
   for (const page of pages) {
     for (const item of page.items) {
-      if (item.type === "board_summary") continue;
       if (isDraftImageItem(item)) {
         form.set(`image:${item.id}`, item.file, item.file.name || `${item.id}.bin`);
       }

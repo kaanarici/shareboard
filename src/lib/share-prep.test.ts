@@ -13,13 +13,12 @@ import type { AuthorProfile, BoardPage, ShareRequestPayload } from "./types";
 const EMPTY_LAYOUTS = { lg: [], sm: [] };
 
 describe("share-prep", () => {
-  test("collectSharePayload drops board summary and strips draft image file state", () => {
+  test("collectSharePayload strips draft image file state", () => {
     const pages: BoardPage[] = [
       {
         id: "page-1",
         layouts: EMPTY_LAYOUTS,
         items: [
-          { id: "__summary__", type: "board_summary" },
           { id: "note-1", type: "note", text: "hello" },
           { id: "json-1", type: "json", name: "data.json", text: '{"ok":true}', size: 11 },
           {
@@ -38,7 +37,6 @@ describe("share-prep", () => {
 
     const payload = collectSharePayload({
       pages,
-      generation: null,
       author: "Ada",
       authorProfile,
     });
@@ -46,7 +44,6 @@ describe("share-prep", () => {
     expect(payload).toEqual({
       author: "Ada",
       authorProfile: { xUrl: "https://x.com/ada" },
-      generation: null,
       pages: [
         {
           id: "page-1",
@@ -87,7 +84,6 @@ describe("share-prep", () => {
 
     const canvas = canvasFromTextOnlyPayload({
       payload,
-      generation: null,
       authorProfile: { linkedinUrl: "https://linkedin.com/in/ada" },
       createdAt: "2026-05-01T00:00:00.000Z",
     });

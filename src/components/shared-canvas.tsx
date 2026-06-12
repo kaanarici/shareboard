@@ -147,7 +147,6 @@ export function SharedCanvas({
         renderPage={(page, _i, isActive) => (
           <Canvas
             items={page.items}
-            generation={canvas.generation}
             layouts={page.layouts}
             maxRows={maxRows}
             onMaxRowsChange={isActive ? setMaxRows : undefined}

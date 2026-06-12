@@ -52,7 +52,6 @@ describe("share-workflow", () => {
 
     const draft = await preparePublicShare({
       pages,
-      generation: null,
       boardOrigin: { kind: "stored", id: "same-board", deleteToken: "replace-token" },
       author: "Ada",
       authorProfile: {},

@@ -2,7 +2,6 @@ import type {
   AuthorProfile,
   BoardPage,
   Canvas,
-  GenerateResponse,
   JsonItem,
   NoteItem,
   ShareRequestItem,
@@ -53,7 +52,7 @@ export function getHistorySubtitle(kind: ShareHistoryKind, pageCount: number, it
 }
 
 function shareItemFromEditor(item: BoardPage["items"][number]): ShareRequestItem | null {
-  if (item.type === "board_summary") return null;
+  if ((item as { type?: unknown }).type === "board_summary") return null;
   if (item.type === "image") {
     return {
       id: item.id,
@@ -68,19 +67,16 @@ function shareItemFromEditor(item: BoardPage["items"][number]): ShareRequestItem
 
 export function collectSharePayload({
   pages,
-  generation,
   author,
   authorProfile,
 }: {
   pages: BoardPage[];
-  generation: GenerateResponse | null;
   author: string;
   authorProfile: AuthorProfile;
 }): ShareRequestPayload {
   return {
     author,
     authorProfile,
-    generation,
     pages: pages.map((page) => ({
       id: page.id,
       layouts: page.layouts,
@@ -95,12 +91,10 @@ export function countPayloadItems(payload: ShareRequestPayload) {
 
 export function canvasFromTextOnlyPayload({
   payload,
-  generation,
   authorProfile,
   createdAt,
 }: {
   payload: ShareRequestPayload;
-  generation: GenerateResponse | null;
   authorProfile: AuthorProfile;
   createdAt: string;
 }): Canvas {
@@ -115,7 +109,6 @@ export function canvasFromTextOnlyPayload({
         item.type === "url" || item.type === "note" || item.type === "json",
       ),
     })),
-    ...(generation ? { generation } : {}),
     createdAt,
   };
 }
