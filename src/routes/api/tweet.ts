@@ -8,7 +8,19 @@ const TWEET_CACHE_CONTROL = "public, max-age=3600, s-maxage=86400";
 const TWEET_RATE_LIMIT = { count: 60, windowMs: 5 * 60 * 1000 };
 const TWEET_ID_PATTERN = /^\d+$/;
 
+// The syndication API blocks Cloudflare's default Worker egress UA (datacenter
+// fingerprint), which surfaced as a 502 on every embed. A real browser UA +
+// the headers the embed widget sends gets the same request through.
+const TWEET_FETCH_HEADERS: Record<string, string> = {
+  "User-Agent":
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+  Accept: "application/json",
+  "Accept-Language": "en-US,en;q=0.9",
+};
+
 type TweetFetcher = (id: string) => Promise<TweetData | null | undefined>;
+
+const fetchTweetWithBrowserUA: TweetFetcher = (id) => getTweet(id, { headers: TWEET_FETCH_HEADERS });
 
 export function isTweetId(value: string | null): value is string {
   return typeof value === "string" && TWEET_ID_PATTERN.test(value);
@@ -36,7 +48,7 @@ function getClientIp(request: Request): string | null {
   return ip && ip.length > 0 ? ip : null;
 }
 
-export async function createTweetResponse(id: string, fetchTweet: TweetFetcher = getTweet) {
+export async function createTweetResponse(id: string, fetchTweet: TweetFetcher = fetchTweetWithBrowserUA) {
   const tweet = await fetchTweet(id);
   return Response.json(
     { data: tweet ?? null },
