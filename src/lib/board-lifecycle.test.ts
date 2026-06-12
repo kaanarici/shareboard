@@ -156,6 +156,25 @@ describe("board lifecycle", () => {
     expect(duplicated).toMatchObject({ type: "image", previewUrl: "blob:new" });
   });
 
+  test("duplicating a resized note keeps the source tile size", () => {
+    const page: BoardPage = {
+      id: "page",
+      items: [{ id: "note", type: "note", text: "<p>hi</p>" }],
+      // User shrank the note from its default footprint.
+      layouts: { lg: [{ i: "note", x: 0, y: 0, w: 3, h: 4 }], sm: [] },
+    };
+    const result = duplicateItemWithSpillToPages({
+      pages: [page],
+      activePage: 0,
+      id: "note",
+      maxRows: 100,
+    });
+
+    expect(result).not.toBeNull();
+    const copyLayout = result!.pages[0]!.layouts?.lg.find((l) => l.i === result!.newId);
+    expect(copyLayout).toMatchObject({ w: 3, h: 4 });
+  });
+
   test("shrinks duplicated images into real gaps, then spills instead of repacking the page", () => {
     const file = new File(["x"], "avatar.png", { type: "image/png" });
     const img = (id: string) => ({

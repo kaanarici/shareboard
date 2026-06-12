@@ -161,15 +161,15 @@ export function duplicateItemWithSpillToPages({
   const copy = isDraftImageItem(source)
     ? { ...source, id: newId, previewUrl: adapter.create(source.file) }
     : { ...source, id: newId };
-  if (source.type === "image") {
-    const exact = addImageDuplicateAtSourceSize({ pages, activePage, sourceId: id, item: copy, maxRows });
-    if (exact) return { ...exact, newId };
-  }
+  // Every duplicate keeps the source tile's current size — a user who resized
+  // a card expects its copy to match, whatever the item type.
+  const exact = addDuplicateAtSourceSize({ pages, activePage, sourceId: id, item: copy, maxRows });
+  if (exact) return { ...exact, newId };
   const result = addItemWithSpillToPages({ pages, activePage, item: copy, maxRows });
   return { ...result, newId };
 }
 
-function addImageDuplicateAtSourceSize({
+function addDuplicateAtSourceSize({
   pages,
   activePage,
   sourceId,

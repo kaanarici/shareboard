@@ -552,7 +552,7 @@ export function Canvas({
                 }}
               >
                 {!readonly && onRemove && (
-                  <div className="grid-card-close absolute top-2 right-2 z-20 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150 grid-interacting-fade">
+                  <div className="grid-card-close absolute top-2 right-2 z-50 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150 grid-interacting-fade">
                     <button
                       type="button"
                       onClick={(e) => {

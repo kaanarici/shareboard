@@ -192,6 +192,10 @@ body.grid-interacting .react-grid-item [data-editing] .ProseMirror * {
   height: 26px !important;
   background-image: none !important;
   pointer-events: auto !important;
+  /* react-resizable's stock stylesheet rotates every non-se handle (90/180/270°
+   * etc.) to reuse one corner icon. Our glyphs are oriented per corner already,
+   * so the inherited rotation flipped them — neutralize it. */
+  transform: none !important;
 }
 
 /*
@@ -207,10 +211,11 @@ body.grid-interacting .react-grid-item [data-editing] .ProseMirror * {
   position: absolute;
   width: 11px;
   height: 11px;
-  border: 0 solid rgba(10, 10, 10, 0.34);
+  border: 0 solid rgba(10, 10, 10, 0.3);
   opacity: 0;
-  transform: scale(0.8);
-  transition: opacity 120ms ease, transform 120ms ease, border-color 120ms ease;
+  transform: scale(0.7);
+  transition: opacity 180ms cubic-bezier(0.2, 0, 0, 1), transform 180ms cubic-bezier(0.2, 0, 0, 1),
+    border-color 180ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 .react-grid-item > .react-resizable-handle-se::after {
