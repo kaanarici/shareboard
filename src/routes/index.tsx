@@ -3,8 +3,9 @@ import { Home } from "@/components/home";
 
 type HomeSearch = {
   page?: number;
-  // PWA share-target intake (manifest `share_target`, GET). Ingested once on the
-  // canvas, then cleared from the URL so refresh doesn't re-add the item.
+  // PWA share-target intake. `shared=1` means a POST share-target worker may
+  // have stashed files in IDB; title/text/url are still ingested from params.
+  shared?: "1";
   title?: string;
   text?: string;
   url?: string;
@@ -24,6 +25,9 @@ export const Route = createFileRoute("/")({
     const result: HomeSearch = {};
     const raw = Number(search.page);
     if (Number.isFinite(raw) && raw >= 1) result.page = Math.floor(raw);
+    // TanStack's search parser JSON-parses values, so ?shared=1 arrives as the
+    // number 1 — accept both shapes.
+    if (search.shared === "1" || search.shared === 1) result.shared = "1";
     const title = shareParam(search.title);
     if (title) result.title = title;
     const text = shareParam(search.text);

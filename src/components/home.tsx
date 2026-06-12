@@ -47,7 +47,9 @@ import { canvasFromTextOnlyPayload, collectSharePayload, getBoardTitle } from "@
 import { canUseTinyShare } from "@/lib/tiny-share";
 import { createHandoffPackage, encodeHandoffUrl, formatHandoffCode } from "@/lib/handoff";
 import { detectPlatform, isValidUrl } from "@/lib/platforms";
+import { useIsMobile } from "@/lib/use-is-mobile";
 import { resolveShareIntake } from "@/lib/share-intake";
+import { clearSharedImageFiles, readSharedImageFiles } from "@/lib/share-intake-files";
 import { parseClipHash } from "@/lib/bookmarklet";
 import { estimateMaxRowsFromViewport } from "@/lib/tile-specs";
 import type {
@@ -191,6 +193,7 @@ export function Home() {
   const navigate = useNavigate({ from: "/" });
   const search = useSearch({ from: "/" });
   const urlPage = search.page ?? 1;
+  const isMobile = useIsMobile();
 
   const [pages, setPages] = useState<BoardPage[]>(() => [emptyBoardPage()]);
   const [generation, setGeneration] = useState<GenerateResponse | null>(null);
@@ -217,6 +220,7 @@ export function Home() {
   const lockedDisposeRef = useRef<(() => void) | null>(null);
   const canvasClipboardRef = useRef<CanvasItem[]>([]);
   const shareIngestedRef = useRef(false);
+  const sharedFilesIngestedRef = useRef(false);
   const clipIngestedRef = useRef(false);
   // Keep latest pages in a ref so the unmount blob-URL cleanup can walk them
   // without being a dep of the mount effect. Assignment during render is safe —
@@ -777,9 +781,7 @@ export function Home() {
       notify.success(
         duplicateCount > 0
           ? `${items.length} unique ${items.length === 1 ? "image" : "images"} added, ${duplicateCount} duplicate ${duplicateCount === 1 ? "entry" : "entries"} skipped`
-          : items.length === 1
-            ? "Image added"
-            : `${items.length} images added`,
+          : `${items.length} ${items.length === 1 ? "image" : "images"} added`,
       );
       return true;
     },
@@ -1261,10 +1263,35 @@ export function Home() {
     };
   });
 
-  // PWA share-target intake: when the OS share sheet opens the board with
-  // title/text/url params, drop the shared content onto the canvas as a URL or
-  // note, then strip the params so a refresh doesn't re-ingest. Waits for setup
-  // to complete and runs at most once.
+  // PWA file share-target intake: the service worker stores POSTed image blobs
+  // in IDB, then redirects here with shared=1. Text/url params are handled by
+  // the existing share-target effect below.
+  useEffect(() => {
+    if (!mounted || needsSetup) return;
+    if (search.shared !== "1") {
+      sharedFilesIngestedRef.current = false;
+      return;
+    }
+    if (sharedFilesIngestedRef.current) return;
+    sharedFilesIngestedRef.current = true;
+
+    void (async () => {
+      try {
+        const files = await readSharedImageFiles();
+        try {
+          if (files.length > 0) await addBoardFiles(files);
+        } finally {
+          await clearSharedImageFiles();
+        }
+      } finally {
+        navigate({ search: {}, replace: true });
+      }
+    })();
+  }, [mounted, needsSetup, search.shared, addBoardFiles, navigate]);
+
+  // PWA share-target text intake: old GET installs and the POST worker redirect
+  // both arrive as title/text/url params. Ingest once, then strip the params so
+  // refresh doesn't re-add the item.
   useEffect(() => {
     if (!mounted || needsSetup) return;
     const { title, text, url } = search;
@@ -1551,6 +1578,11 @@ export function Home() {
                 void importFromInput();
               }
             }}
+            inputMode="url"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            enterKeyHint="go"
             className="setup-dialog-tile-input"
           />
           <DialogFooter className="mt-2">
@@ -1695,9 +1727,9 @@ export function Home() {
       {/* Toasts slide up from bottom-right. When the page-nav pill is present
           (>1 page), we shift left past it so the two don't collide. */}
       <Toaster
-        position="bottom-right"
+        position={isMobile ? "top-center" : "bottom-right"}
         offset={{ bottom: "1.25rem", right: pages.length > 1 ? "12rem" : "1.25rem" }}
-        mobileOffset={{ bottom: "1.25rem", right: pages.length > 1 ? "10rem" : "1rem" }}
+        mobileOffset={{ top: "3rem", left: "1rem", right: "1rem" }}
       />
     </div>
   );
