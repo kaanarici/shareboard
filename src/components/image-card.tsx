@@ -44,7 +44,7 @@ export function ImageCard({
         <img
           src={src}
           alt={item.caption ?? "Screenshot"}
-          className="h-full w-full object-cover"
+          className="h-full w-full object-cover outline outline-1 -outline-offset-1 outline-black/10"
           loading="lazy"
           decoding="async"
           onLoad={handleLoad}

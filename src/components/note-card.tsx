@@ -77,7 +77,7 @@ export function NoteCard({
       onClick={focusEditor}
     >
       <div
-        className="flex-1 min-h-0 overflow-auto"
+        className="flex-1 min-h-0 overflow-auto note-scroll"
         data-editing={editing ? "true" : undefined}
       >
         <EditorContent editor={editor} className="h-full text-sm leading-relaxed" />

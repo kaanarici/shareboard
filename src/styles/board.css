@@ -83,7 +83,13 @@
   box-shadow:
     0 1px 2px rgba(0, 0, 0, 0.04),
     0 6px 18px -8px rgba(0, 0, 0, 0.1);
-  overflow: hidden;
+  /* No overflow:hidden — it would clip the coarse-pointer hit-area extension
+   * below the bar. The rounded corner is preserved by rounding the first
+   * child's hover fill instead. */
+}
+
+.board-notch > :first-child {
+  border-bottom-left-radius: 13px;
 }
 
 .board-notch[data-locked] {
@@ -115,9 +121,34 @@
   background-color: rgba(0, 0, 0, 0.075);
 }
 
+.board-notch-action:active:not(:disabled) .board-notch-action-content {
+  transform: scale(0.96);
+}
+
+.board-notch-action .board-notch-action-content,
+.board-notch-action > svg {
+  transition: transform 0.12s ease;
+}
+
+.board-notch-action:active:not(:disabled) > svg {
+  transform: scale(0.96);
+}
+
 .board-notch-action:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* The notch bar is 32px tall — under the 40px touch minimum. Extend each
+ * action's hit area downward (the strip below the bar is non-interactive
+ * canvas padding on every layout) without growing the bar visually. */
+.board-notch-action {
+  position: relative;
+}
+.board-notch-action::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 -10px 0;
 }
 
 .board-notch-action-content {
@@ -131,6 +162,7 @@
   align-items: center;
   padding: 0 0.625rem 0 0.875rem;
   font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
   color: rgba(10, 10, 10, 0.65);
   min-width: 0;
 }
@@ -527,6 +559,16 @@
   border: 0 !important;
   box-shadow: none !important;
   padding: 0 !important;
+  /* Short viewports (laptop + dock, landscape phones): the settings stack is
+   * taller than the screen — scroll inside the transparent shell instead of
+   * clipping. Hidden scrollbar; the tiles themselves communicate the cut. */
+  max-height: calc(100dvh - 6rem);
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.board-popover::-webkit-scrollbar {
+  display: none;
 }
 
 .board-popover--menu {
@@ -1056,5 +1098,24 @@
     height: 56px !important;
     margin-left: -28px !important;
     margin-top: -28px !important;
+  }
+}
+
+/* ─── Note body scrollbar ───────────────────────────────────────────────
+ * A full gutter scrollbar inside a small white card reads as a stray vertical
+ * line (visible on touch devices where overlay scrollbars don't apply). Thin +
+ * quiet on fine pointers; hidden on coarse pointers where momentum scrolling
+ * carries the affordance. */
+.note-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.16) transparent;
+}
+
+@media (pointer: coarse) {
+  .note-scroll {
+    scrollbar-width: none;
+  }
+  .note-scroll::-webkit-scrollbar {
+    display: none;
   }
 }

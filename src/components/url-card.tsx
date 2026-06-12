@@ -71,7 +71,7 @@ function OGCard({ item, summary }: { item: UrlItem; summary?: ItemSummary }) {
           <img
             src={og?.image}
             alt={og?.title ?? ""}
-            className="h-full w-full object-cover"
+            className="h-full w-full object-cover outline outline-1 -outline-offset-1 outline-black/10"
             loading="lazy"
             decoding="async"
             referrerPolicy="no-referrer"

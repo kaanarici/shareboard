@@ -370,9 +370,10 @@ export function Canvas({
   );
 
   // Top padding clears the fixed board-notch (32px tall, flush to the top-right
-  // corner). Without it the top-right grid row renders partially under the notch.
+  // corner) on every layout — the mobile stack spans full width, so its first
+  // card's close button collides with Share/Send without the clearance.
   const containerClass = isMobile
-    ? "flex-1 w-full min-h-0 min-w-0 px-3 pt-3 pb-24 overflow-y-auto overflow-x-hidden relative"
+    ? "flex-1 w-full min-h-0 min-w-0 px-3 pt-11 pb-24 overflow-y-auto overflow-x-hidden relative"
     : "flex-1 w-full min-h-0 min-w-0 px-3 pt-11 pb-20 md:px-5 md:pt-11 md:pb-24 overflow-hidden relative";
 
   return (
@@ -412,28 +413,28 @@ export function Canvas({
               <div className="text-center select-none max-w-md">
                 {emptyStateHint ? (
                   <>
-                    <p className="text-2xl md:text-3xl font-semibold tracking-tight text-inset">
+                    <p className="text-2xl md:text-3xl font-semibold tracking-tight text-inset text-balance">
                       {emptyStateHint}
                     </p>
-                    <p className="text-base md:text-lg mt-2.5 text-inset max-w-[28ch] mx-auto leading-relaxed">
+                    <p className="text-base md:text-lg mt-2.5 text-inset max-w-[28ch] mx-auto leading-relaxed text-pretty">
                       Then paste links, images, or notes here
                     </p>
                   </>
                 ) : isMobile ? (
                   <>
-                    <p className="text-2xl md:text-3xl font-semibold tracking-tight text-inset">
+                    <p className="text-2xl md:text-3xl font-semibold tracking-tight text-inset text-balance">
                       Tap + to add
                     </p>
-                    <p className="text-base md:text-lg mt-2.5 text-inset max-w-[28ch] mx-auto leading-relaxed">
+                    <p className="text-base md:text-lg mt-2.5 text-inset max-w-[28ch] mx-auto leading-relaxed text-pretty">
                       Links, images, or notes
                     </p>
                   </>
                 ) : (
                   <>
-                    <p className="text-2xl md:text-3xl font-semibold tracking-tight text-inset">
+                    <p className="text-2xl md:text-3xl font-semibold tracking-tight text-inset text-balance">
                       Paste anything to get started
                     </p>
-                    <p className="text-base md:text-lg mt-2.5 text-inset max-w-[28ch] mx-auto leading-relaxed">
+                    <p className="text-base md:text-lg mt-2.5 text-inset max-w-[28ch] mx-auto leading-relaxed text-pretty">
                       Links, images, or text — Cmd+V
                     </p>
                   </>

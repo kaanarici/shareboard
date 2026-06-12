@@ -47,10 +47,10 @@ export function SetupCards({ onComplete }: { onComplete: () => void }) {
         data-form-type="other"
       >
         <div className="setup-dialog-card setup-dialog-header-cell">
-          <h2 className="font-heading text-lg leading-none font-medium">
+          <h2 className="font-heading text-lg leading-none font-medium text-balance">
             Welcome to Shareboard
           </h2>
-          <p className="text-sm text-muted-foreground mt-2">
+          <p className="text-sm text-muted-foreground mt-2 text-pretty">
             A canvas for links, notes, and images. Arrange on the grid, share one link,
             or use Summarize with your own OpenAI key.
           </p>

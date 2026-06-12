@@ -189,7 +189,7 @@ function FanItem({
         delay: isOpen ? index * 0.025 : (total - 1 - index) * 0.03,
       }}
       whileHover={!item.disabled ? { scale: 1.08 } : undefined}
-      whileTap={!item.disabled ? { scale: 0.92 } : undefined}
+      whileTap={!item.disabled ? { scale: 0.96 } : undefined}
       onMouseEnter={() => setHovering(true)}
       onMouseLeave={() => setHovering(false)}
       onFocus={() => setHovering(true)}
