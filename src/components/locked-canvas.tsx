@@ -57,7 +57,13 @@ export function LockedCanvas({
 
   return (
     <div className="locked-share-screen">
-      <form className="locked-share-card locked-share-card--inline">
+      <form
+        className="locked-share-card locked-share-card--inline"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void unlock();
+        }}
+      >
         <div className="locked-share-icon" aria-hidden>
           <LockKeyhole className="h-5 w-5" />
         </div>

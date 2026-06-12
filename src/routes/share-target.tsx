@@ -8,8 +8,9 @@ function shareParam(value: unknown): string | undefined {
   return trimmed ? trimmed.slice(0, SHARE_PARAM_MAX) : undefined;
 }
 
-function redirectToHome(params: { title?: unknown; text?: unknown; url?: unknown }) {
+function redirectToHome(params: { title?: unknown; text?: unknown; url?: unknown; shared?: "lost" }) {
   const search = new URLSearchParams();
+  if (params.shared) search.set("shared", params.shared);
   const title = shareParam(params.title);
   if (title) search.set("title", title);
   const text = shareParam(params.text);
@@ -33,7 +34,9 @@ export const Route = createFileRoute("/share-target")({
       },
       POST: async ({ request }) => {
         const form = await request.formData().catch(() => null);
+        const hadFiles = form ? Array.from(form.values()).some((value) => typeof value !== "string") : false;
         return redirectToHome({
+          shared: hadFiles ? "lost" : undefined,
           title: form?.get("title"),
           text: form?.get("text"),
           url: form?.get("url"),

@@ -369,6 +369,7 @@ export function Toolbar({
                 type="button"
                 className="board-history-row board-history-new"
                 disabled={!hasItems}
+                title="Keep a named copy of this board in this browser"
                 onClick={() => {
                   onSaveToLibrary();
                   closeMenu();
@@ -390,7 +391,11 @@ export function Toolbar({
                 <span className="board-history-title">New board</span>
               </button>
               {history.length === 0 && libraryBoards.length === 0 ? (
-                <div className="board-history-empty">Saved and shared boards appear here.</div>
+                <div className="board-history-empty">
+                  Saved and shared boards appear here. The library lives in this
+                  browser on this device — use Send to move a board to another
+                  browser or device.
+                </div>
               ) : (
                 <>
                   {history.map((entry) => {
@@ -474,7 +479,7 @@ export function Toolbar({
                 })}
                   {libraryBoards.length > 0 && (
                     <>
-                      <div className="board-history-group-label">Saved on this device</div>
+                      <div className="board-history-group-label" title="The library lives in this browser's storage. The installed app and Safari keep separate libraries — use Send to move boards between them.">Saved in this browser</div>
                       {libraryBoards.map((board) => (
                         <div className="board-history-row" key={board.id}>
                           <button

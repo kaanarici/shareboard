@@ -37,15 +37,15 @@ export function BoardCarousel<T>({
     const el = viewportRef.current;
     if (!el) return;
 
-    // { x0, y0, locked: 'h' | 'v' | null } — gesture state for the active touch.
-    let state: { x0: number; y0: number; locked: "h" | "v" | null } | null = null;
+    // { x0, y0, locked, dx } — gesture state for the active touch.
+    let state: { x0: number; y0: number; locked: "h" | "v" | null; dx: number } | null = null;
 
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length !== 1) return;
       const { onNavigate: nav, pageCount } = latest.current;
       if (!nav || pageCount < 2) return;
       const t = e.touches[0];
-      state = { x0: t.clientX, y0: t.clientY, locked: null };
+      state = { x0: t.clientX, y0: t.clientY, locked: null, dx: 0 };
     };
 
     const onTouchMove = (e: TouchEvent) => {
@@ -65,6 +65,7 @@ export function BoardCarousel<T>({
       const atStart = idx === 0 && dx > 0;
       const atEnd = idx === pageCount - 1 && dx < 0;
       if (atStart || atEnd) resisted = dx * OVERDRAG_RESIST;
+      state.dx = resisted;
       setDragDx(resisted);
     };
 
@@ -75,9 +76,9 @@ export function BoardCarousel<T>({
         setDragDx(null);
         return;
       }
-      const { safeIndex: idx, pageCount, onNavigate: nav, dragDx: dd } = latest.current;
+      const { safeIndex: idx, pageCount, onNavigate: nav } = latest.current;
       const vw = el.clientWidth || window.innerWidth;
-      const dx = dd ?? 0;
+      const dx = st.dx;
       const threshold = vw * COMMIT_RATIO;
       if (nav) {
         if (dx < -threshold && idx < pageCount - 1) nav(1);

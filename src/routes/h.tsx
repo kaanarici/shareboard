@@ -1,18 +1,25 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { ArrowRight } from "lucide-react";
 import { SharedCanvas } from "@/components/shared-canvas";
 import { Button } from "@/components/ui/button";
-import { importFromUrl } from "@/lib/board-import";
+import { importFromUrl, type ImportError } from "@/lib/board-import";
 import { editorPagesFromCanvas } from "@/lib/board-lifecycle";
 import { parseHandoffFragment } from "@/lib/handoff";
 import { saveLocalDraft } from "@/lib/local-draft";
 import { readPageIndexFromUrl } from "@/lib/pagination";
 import { SHARED_BOARD_LOADING_LABEL } from "@/lib/shared-board";
 import type { Canvas } from "@/lib/types";
-import { useSharedBoardLoad } from "@/lib/use-shared-board-load";
 
 const HANDOFF_GONE_LABEL = "That handoff code has expired or was already used.";
+const HANDOFF_INVALID_LABEL = "That handoff link looks invalid";
+const HANDOFF_FETCH_FAILED_LABEL = "Couldn't reach the server — check your connection";
+
+type HandoffError = Extract<ImportError, "invalid-input" | "fetch-failed" | "handoff-gone">;
+type HandoffState =
+  | { status: "loading" }
+  | { status: "ready"; canvas: Canvas }
+  | { status: "error"; error: HandoffError };
 
 export const Route = createFileRoute("/h")({
   head: () => ({
@@ -25,18 +32,29 @@ export const Route = createFileRoute("/h")({
 });
 
 function HandoffReceivePage() {
-  // The code lives only in the URL fragment, so it never reaches the server as a
-  // query or path. importFromUrl's handoff branch derives the storage id from it
-  // locally, does the one-time GET, and decrypts client-side.
-  const loadHandoff = useCallback(async (): Promise<Canvas | null> => {
-    if (typeof window === "undefined") return null;
-    const code = parseHandoffFragment(window.location.hash);
-    if (!code) return null;
-    const result = await importFromUrl(code);
-    return result.ok ? result.canvas : null;
-  }, []);
+  const [state, setState] = useState<HandoffState>({ status: "loading" });
 
-  const state = useSharedBoardLoad<Canvas>({ load: loadHandoff });
+  useEffect(() => {
+    let disposed = false;
+    void (async () => {
+      if (typeof window === "undefined") return;
+      const code = parseHandoffFragment(window.location.hash);
+      if (!code) {
+        if (!disposed) setState({ status: "error", error: "invalid-input" });
+        return;
+      }
+      const result = await importFromUrl(code);
+      if (disposed) return;
+      if (result.ok) {
+        setState({ status: "ready", canvas: result.canvas });
+      } else {
+        setState({ status: "error", error: handoffError(result.error) });
+      }
+    })();
+    return () => {
+      disposed = true;
+    };
+  }, []);
 
   const openOnMyBoard = useCallback(async () => {
     if (state.status !== "ready") return;
@@ -76,7 +94,17 @@ function HandoffReceivePage() {
   }
   return (
     <div className="flex h-dvh items-center justify-center text-sm text-muted-foreground">
-      {HANDOFF_GONE_LABEL}
+      {handoffErrorLabel(state.error)}
     </div>
   );
+}
+
+function handoffError(error: ImportError): HandoffError {
+  return error === "fetch-failed" || error === "handoff-gone" ? error : "invalid-input";
+}
+
+function handoffErrorLabel(error: HandoffError) {
+  if (error === "invalid-input") return HANDOFF_INVALID_LABEL;
+  if (error === "fetch-failed") return HANDOFF_FETCH_FAILED_LABEL;
+  return HANDOFF_GONE_LABEL;
 }

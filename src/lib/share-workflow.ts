@@ -194,6 +194,9 @@ export async function prepareLockedShare({
     form,
     isReplace,
     metadata: { title, itemCount, pageCount: securePages.length, createdAt },
+    ...(boardOrigin.kind === "draft" && boardOrigin.replaceHistoryId
+      ? { replaceHistoryId: boardOrigin.replaceHistoryId }
+      : {}),
   };
 }
 

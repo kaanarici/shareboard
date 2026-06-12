@@ -35,7 +35,7 @@ export function UrlCard({
     return <YouTubeEmbed url={item.url} />;
   }
 
-  return <OGCard item={item} summary={summary} />;
+  return <OGCard item={item} summary={summary} readonly={readonly} />;
 }
 
 function TweetEmbedFallback() {
@@ -47,7 +47,7 @@ function TweetEmbedFallback() {
   );
 }
 
-function OGCard({ item, summary }: { item: UrlItem; summary?: ItemSummary }) {
+function OGCard({ item, summary, readonly }: { item: UrlItem; summary?: ItemSummary; readonly?: boolean }) {
   const og = item.ogData;
   const [imageFailed, setImageFailed] = useState(false);
   const hostname = (() => {
@@ -64,6 +64,7 @@ function OGCard({ item, summary }: { item: UrlItem; summary?: ItemSummary }) {
       href={item.url}
       target="_blank"
       rel="noopener noreferrer"
+      onClick={readonly ? undefined : (e) => e.preventDefault()}
       className="flex h-full flex-col bg-card"
     >
       {showImage ? (

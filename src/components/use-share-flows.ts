@@ -41,7 +41,7 @@ export function useShareFlows({
   pages: BoardPage[];
   generation: GenerateResponse | null;
   boardOrigin: BoardOrigin;
-  onRestoreBoard: (canvas: SharedCanvasData, origin: BoardOrigin) => void;
+  onRestoreBoard: (canvas: SharedCanvasData, origin: BoardOrigin, dispose?: () => void) => void;
   onOriginChange: (origin: BoardOrigin) => void;
 }) {
   const [shareState, setShareState] = useState<"idle" | "sharing" | "copied">("idle");
@@ -52,6 +52,7 @@ export function useShareFlows({
   const [history, setHistory] = useState<BoardHistoryEntry[]>([]);
   const [openingEntryId, setOpeningEntryId] = useState<string | null>(null);
   const shareResetTimer = useRef<number | null>(null);
+  const shareInFlightRef = useRef(false);
   const isMobile = useIsMobile();
 
   useMountEffect(() => {
@@ -86,7 +87,8 @@ export function useShareFlows({
   );
 
   const share = useCallback(async () => {
-    if (shareState === "sharing") return;
+    if (shareInFlightRef.current) return;
+    shareInFlightRef.current = true;
     setShareState("sharing");
     try {
       const draft = await preparePublicShare({
@@ -155,12 +157,15 @@ export function useShareFlows({
     } catch (error) {
       setShareState("idle");
       notify.error(error instanceof Error ? error.message : "Failed to share");
+    } finally {
+      shareInFlightRef.current = false;
     }
-  }, [pages, generation, boardOrigin, shareState, isMobile, finishShare, markShareCopied, onOriginChange]);
+  }, [pages, generation, boardOrigin, isMobile, finishShare, markShareCopied, onOriginChange]);
 
   const shareLocked = useCallback(
     async (pin: string) => {
-      if (lockedShareBusy || shareState === "sharing") return;
+      if (shareInFlightRef.current) return;
+      shareInFlightRef.current = true;
       setLockedShareBusy(true);
       setShareState("sharing");
       try {
@@ -183,6 +188,9 @@ export function useShareFlows({
         const { id: shareId, deleteToken } = await readShareCreateResponse(res);
         const shareUrl = `${window.location.origin}/c/${shareId}`;
         saveLastSharedBoard({ id: shareId, deleteToken, shareUrl });
+        if (draft.replaceHistoryId) {
+          removeBoardHistoryEntry(draft.replaceHistoryId);
+        }
         saveBoardHistory(createHistoryEntry({
           id: shareId,
           kind: "locked",
@@ -208,10 +216,11 @@ export function useShareFlows({
         setShareState("idle");
         notify.error(error instanceof Error ? error.message : "Failed to create locked share");
       } finally {
+        shareInFlightRef.current = false;
         setLockedShareBusy(false);
       }
     },
-    [pages, generation, boardOrigin, lockedShareBusy, shareState, finishShare, markShareCopied, onOriginChange],
+    [pages, generation, boardOrigin, finishShare, markShareCopied, onOriginChange],
   );
 
   const openHistoryEntry = useCallback(
@@ -278,7 +287,7 @@ export function useShareFlows({
           kind: "locked",
           id: entry.id,
           deleteToken: entry.deleteToken,
-        });
+        }, result.dispose);
         notify.success("Board ready to edit");
       } finally {
         setOpeningEntryId(null);
@@ -288,25 +297,13 @@ export function useShareFlows({
   );
 
   const removeHistoryEntry = useCallback(async (entry: BoardHistoryEntry) => {
-    if (entry.deleteToken && (entry.kind === "stored" || entry.kind === "locked")) {
-      try {
-        const res = await fetch(`/api/share?id=${encodeURIComponent(entry.id)}`, {
-          method: "DELETE",
-          headers: { "x-delete-token": entry.deleteToken },
-        });
-        if (!res.ok && res.status !== 404) {
-          notify.error(await readErrorMessage(res, "Failed to delete share"));
-          // Still drop from history — keeping stale entries is worse UX.
-        }
-      } catch {
-        // Network failure: still drop the local entry.
-      }
+    if (await shouldRemoveHistoryEntry(entry)) {
       const last = getLastSharedBoard();
       if (last?.id === entry.id) clearLastSharedBoard();
+      setLastShareUrl((current) => (current === entry.shareUrl ? "" : current));
+      removeBoardHistoryEntry(entry.id);
+      setHistory(getBoardHistory());
     }
-    setLastShareUrl((current) => (current === entry.shareUrl ? "" : current));
-    removeBoardHistoryEntry(entry.id);
-    setHistory(getBoardHistory());
   }, []);
 
   // The QR/last-share affordance must not outlive the board it points at.
@@ -329,4 +326,23 @@ export function useShareFlows({
     removeHistoryEntry,
     markShareCopied,
   };
+}
+
+export async function shouldRemoveHistoryEntry(
+  entry: BoardHistoryEntry,
+  onError: (message: string) => void = notify.error,
+) {
+  if (!entry.deleteToken || (entry.kind !== "stored" && entry.kind !== "locked")) return true;
+  try {
+    const res = await fetch(`/api/share?id=${encodeURIComponent(entry.id)}`, {
+      method: "DELETE",
+      headers: { "x-delete-token": entry.deleteToken },
+    });
+    if (res.ok || res.status === 404) return true;
+    onError(await readErrorMessage(res, "Failed to delete share"));
+    return false;
+  } catch {
+    onError("Failed to delete share");
+    return false;
+  }
 }

@@ -462,6 +462,7 @@ export function Canvas({
                       if (src) setLightbox({ src, alt: item.caption });
                       return;
                     }
+                    if (!readonly && item.type === "url") e.preventDefault();
                     if (e.metaKey || e.ctrlKey) {
                       blurActiveElementSoon();
                       e.preventDefault();

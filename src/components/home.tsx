@@ -57,7 +57,6 @@ import type {
   Canvas as SharedCanvasData,
   CanvasItem,
   GenerateResponse,
-  GridLayouts,
   OGData,
 } from "@/lib/types";
 import { BOARD_SUMMARY_ITEM_ID, isDraftImageItem } from "@/lib/types";
@@ -219,6 +218,10 @@ export function Home() {
   const lastSavedLayoutSigRef = useRef<string>("");
   const lockedDisposeRef = useRef<(() => void) | null>(null);
   const canvasClipboardRef = useRef<CanvasItem[]>([]);
+  const activePageRef = useRef(0);
+  const selectedIdsRef = useRef<string[]>([]);
+  const pendingImageBytesRef = useRef(0);
+  const generateInFlightRef = useRef(false);
   const shareIngestedRef = useRef(false);
   const sharedFilesIngestedRef = useRef(false);
   const clipIngestedRef = useRef(false);
@@ -238,9 +241,10 @@ export function Home() {
   // Shared restore side effects: drop the locked board, the stale QR link, and
   // the current selection, then swap in the new pages/generation/origin.
   const applyRestoredBoard = useCallback(
-    (nextPages: BoardPage[], nextGeneration: GenerateResponse | null, origin: BoardOrigin) => {
+    (nextPages: BoardPage[], nextGeneration: GenerateResponse | null, origin: BoardOrigin, dispose?: () => void) => {
       lockedDisposeRef.current?.();
-      lockedDisposeRef.current = null;
+      lockedDisposeRef.current = dispose ?? null;
+      revokeDraftImagePreviews(pagesRef.current);
       clearLastShareUrlRef.current();
       setPages(nextPages);
       setGeneration(nextGeneration);
@@ -252,8 +256,8 @@ export function Home() {
   );
 
   const restoreBoard = useCallback(
-    (canvas: SharedCanvasData, origin: BoardOrigin = { kind: "draft" }) =>
-      applyRestoredBoard(editorPagesFromCanvas(canvas), canvas.generation ?? null, origin),
+    (canvas: SharedCanvasData, origin: BoardOrigin = { kind: "draft" }, dispose?: () => void) =>
+      applyRestoredBoard(editorPagesFromCanvas(canvas), canvas.generation ?? null, origin, dispose),
     [applyRestoredBoard],
   );
 
@@ -276,10 +280,13 @@ export function Home() {
       pages: pagesRef.current,
       generation: generationRef.current,
       origin: boardOriginRef.current,
+      selectedIds: selectedIdsRef.current,
+      activePage: activePageRef.current,
     };
     lockedDisposeRef.current?.();
     lockedDisposeRef.current = null;
     clearLastShareUrlRef.current();
+    navigate({ search: {}, replace: false });
     setPages([emptyBoardPage()]);
     setGeneration(null);
     setBoardOrigin({ kind: "draft" });
@@ -289,8 +296,10 @@ export function Home() {
       setPages(prev.pages);
       setGeneration(prev.generation);
       setBoardOrigin(prev.origin);
+      setSelectedIds(prev.selectedIds);
+      navigate({ search: prev.activePage === 0 ? {} : { page: prev.activePage + 1 }, replace: false });
     });
-  }, []);
+  }, [navigate]);
 
   const saveToLibrary = useCallback(async () => {
     const p = pagesRef.current;
@@ -435,6 +444,12 @@ export function Home() {
   clearLastShareUrlRef.current = clearLastShareUrl;
 
   const activePage = Math.max(0, Math.min(urlPage - 1, pages.length - 1));
+  activePageRef.current = activePage;
+  selectedIdsRef.current = selectedIds;
+
+  useEffect(() => {
+    pendingImageBytesRef.current = 0;
+  }, [pages]);
 
   const setActivePage = useCallback(
     (next: number) => {
@@ -451,10 +466,6 @@ export function Home() {
   const itemsOnActive = pages[activePage]?.items ?? [];
   const totalContentItems = useMemo(
     () => pages.reduce((n, p) => n + p.items.filter((i) => i.type !== "board_summary").length, 0),
-    [pages]
-  );
-  const totalMediaBytes = useMemo(
-    () => mediaBytesForPages(pages),
     [pages]
   );
   const totalJsonBytes = useMemo(
@@ -597,18 +608,6 @@ export function Home() {
     []
   );
 
-  const updateActivePageItems = useCallback(
-    (
-      mutate: (items: CanvasItem[], layouts: GridLayouts) => { items: CanvasItem[]; layouts: GridLayouts }
-    ) => {
-      patchPage(activePage, (page) => {
-        const next = mutate(page.items, page.layouts);
-        return { ...page, items: next.items, layouts: next.layouts };
-      });
-    },
-    [patchPage, activePage]
-  );
-
   /**
    * Add `item` to the active page, or spill to the next page (auto-creating it)
    * if the active page can't fit the new tile inside maxRows. Empty pages clamp
@@ -709,10 +708,12 @@ export function Home() {
         return false;
       }
 
-      if (totalMediaBytes + optimized.file.size > IMAGE_POLICY.maxBoardBytes) {
+      const currentMediaBytes = mediaBytesForPages(pagesRef.current) + pendingImageBytesRef.current;
+      if (currentMediaBytes + optimized.file.size > IMAGE_POLICY.maxBoardBytes) {
         notify.error(`Boards can hold up to ${formatBytes(IMAGE_POLICY.maxBoardBytes)} of images`);
         return false;
       }
+      pendingImageBytesRef.current += optimized.file.size;
 
       const id = nanoid(10);
       const item: CanvasItem = {
@@ -730,7 +731,7 @@ export function Home() {
       notify.success(saved > 512 * 1024 ? `Image optimized to ${formatBytes(optimized.file.size)}` : "Image added");
       return true;
     },
-    [addItemWithSpill, totalMediaBytes]
+    [addItemWithSpill]
   );
 
   const addImages = useCallback(
@@ -756,7 +757,7 @@ export function Home() {
         }
       }
 
-      let mediaBytes = mediaBytesForPages(pagesRef.current);
+      let mediaBytes = mediaBytesForPages(pagesRef.current) + pendingImageBytesRef.current;
       const items: CanvasItem[] = [];
       for (const optimized of optimizedImages) {
         if (mediaBytes + optimized.file.size > IMAGE_POLICY.maxBoardBytes) {
@@ -777,6 +778,7 @@ export function Home() {
 
       if (items.length === 0) return false;
 
+      pendingImageBytesRef.current += mediaBytesForItems(items);
       addItemsWithSpill(items);
       notify.success(
         duplicateCount > 0
@@ -967,12 +969,14 @@ export function Home() {
   );
 
   const generate = useCallback(async () => {
+    if (generateInFlightRef.current) return;
     if (!getApiKey().trim()) {
       notify.error("Add an OpenAI API key in settings to summarize");
       return;
     }
     const allItems = pages.flatMap((p) => p.items.filter((i) => i.type !== "board_summary"));
     if (allItems.length === 0) return;
+    generateInFlightRef.current = true;
     setIsGenerating(true);
     const progress = notifyProgress("Summarizing");
     try {
@@ -1010,6 +1014,7 @@ export function Home() {
     } catch {
       progress.error("Failed to connect");
     } finally {
+      generateInFlightRef.current = false;
       setIsGenerating(false);
     }
   }, [pages, patchPage, maxRows, setActivePage]);
@@ -1268,6 +1273,12 @@ export function Home() {
   // the existing share-target effect below.
   useEffect(() => {
     if (!mounted || needsSetup) return;
+    if (search.shared === "lost") {
+      notify.error("Images couldn't be received — open the app once, then share again");
+      sharedFilesIngestedRef.current = false;
+      navigate({ search: {}, replace: true });
+      return;
+    }
     if (search.shared !== "1") {
       sharedFilesIngestedRef.current = false;
       return;
@@ -1344,6 +1355,7 @@ export function Home() {
       }
 
       window.history.replaceState(null, "", window.location.pathname + window.location.search);
+      clipIngestedRef.current = false;
     };
 
     ingestClip();
@@ -1363,8 +1375,8 @@ export function Home() {
               className="board-notch-action"
               onClick={handleSaveClick}
               disabled={saveState === "saving"}
-              aria-label="Save board to this browser"
-              title="Save board to this browser"
+              aria-label="Board autosaves to this browser — save now"
+              title="Autosaves to this browser. Click to save now."
             >
               <AnimatePresence mode="wait" initial={false}>
                 <motion.span
