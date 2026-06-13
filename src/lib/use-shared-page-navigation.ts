@@ -3,9 +3,11 @@ import { clampPageIndex, readPageIndexFromUrl } from "@/lib/pagination";
 import { useMountEffect } from "@/lib/use-mount-effect";
 
 export function useSharedPageNavigation({
+  boardId,
   initialPageIndex,
   pageCount,
 }: {
+  boardId: string;
   initialPageIndex: number;
   pageCount: number;
 }) {
@@ -29,6 +31,10 @@ export function useSharedPageNavigation({
   useEffect(() => {
     setActivePageIndex((page) => clampPageIndex(page, pageCount));
   }, [pageCount]);
+
+  useEffect(() => {
+    setActivePageIndex(clampPageIndex(initialPageIndex, pageCountRef.current));
+  }, [boardId, initialPageIndex]);
 
   useMountEffect(() => {
     const onPopState = () => setActivePageIndex(readPageIndexFromUrl(pageCountRef.current));

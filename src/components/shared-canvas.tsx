@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { useMountEffect } from "@/lib/use-mount-effect";
 import type { Canvas as CanvasType } from "@/lib/types";
@@ -17,14 +17,17 @@ import { ArrowRight, Share2 } from "lucide-react";
 export function SharedCanvas({
   canvas,
   initialPageIndex = 0,
+  cta,
 }: {
   canvas: CanvasType;
   initialPageIndex?: number;
+  cta?: ReactNode;
 }) {
   const [maxRows, setMaxRows] = useState(estimateMaxRowsFromViewport);
 
   const pages = useMemo(() => hydrateSharedBoardPages(canvas), [canvas]);
   const { activePage, setActivePage } = useSharedPageNavigation({
+    boardId: canvas.id,
     initialPageIndex,
     pageCount: pages.length,
   });
@@ -167,10 +170,12 @@ export function SharedCanvas({
           )}
         </span>
         <span className="board-toolbar-right">
-          <Link to="/" className="board-cta-link">
-            <span>Make your own</span>
-            <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
+          {cta ?? (
+            <Link to="/" className="board-cta-link">
+              <span>Make your own</span>
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          )}
         </span>
       </div>
     </div>

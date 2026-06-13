@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { ArrowRight } from "lucide-react";
 import { SharedCanvas } from "@/components/shared-canvas";
-import { Button } from "@/components/ui/button";
 import { importFromUrl, type ImportError } from "@/lib/board-import";
 import { editorPagesFromCanvas } from "@/lib/board-lifecycle";
 import { parseHandoffFragment } from "@/lib/handoff";
@@ -36,23 +35,29 @@ function HandoffReceivePage() {
 
   useEffect(() => {
     let disposed = false;
-    void (async () => {
+    let runId = 0;
+    const load = async () => {
       if (typeof window === "undefined") return;
+      const id = ++runId;
+      setState({ status: "loading" });
       const code = parseHandoffFragment(window.location.hash);
       if (!code) {
-        if (!disposed) setState({ status: "error", error: "invalid-input" });
+        if (!disposed && id === runId) setState({ status: "error", error: "invalid-input" });
         return;
       }
       const result = await importFromUrl(code);
-      if (disposed) return;
+      if (disposed || id !== runId) return;
       if (result.ok) {
         setState({ status: "ready", canvas: result.canvas });
       } else {
         setState({ status: "error", error: handoffError(result.error) });
       }
-    })();
+    };
+    void load();
+    window.addEventListener("hashchange", load);
     return () => {
       disposed = true;
+      window.removeEventListener("hashchange", load);
     };
   }, []);
 
@@ -75,13 +80,13 @@ function HandoffReceivePage() {
         <SharedCanvas
           canvas={state.canvas}
           initialPageIndex={readPageIndexFromUrl(state.canvas.pages.length)}
+          cta={(
+            <button type="button" className="board-cta-link" onClick={() => void openOnMyBoard()}>
+              <span>Open on my board</span>
+              <ArrowRight className="h-3.5 w-3.5" />
+            </button>
+          )}
         />
-        <div className="fixed left-1/2 top-2 z-50 -translate-x-1/2">
-          <Button type="button" onClick={() => void openOnMyBoard()}>
-            Open on my board
-            <ArrowRight className="h-4 w-4" />
-          </Button>
-        </div>
       </>
     );
   }

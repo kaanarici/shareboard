@@ -202,7 +202,8 @@ export const AutoCanvas = forwardRef<HTMLDivElement, AutoCanvasProps>(function A
           });
           const rowBudget = maxRows && maxRows > 0 ? Math.max(1, maxRows - l.y) : null;
           if (rowBudget && h > rowBudget) {
-            for (let nextW = Math.min(w, cols); nextW >= 1; nextW--) {
+            const minSpan = Math.max(1, spec.minSpan ?? 1);
+            for (let nextW = Math.min(w, cols); nextW >= minSpan; nextW--) {
               const nextH = chooseRows(spec, nextW, {
                 columns: cols,
                 containerWidth: cw,

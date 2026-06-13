@@ -157,6 +157,16 @@ describe("packLayout", () => {
     // pxW(8) ≈ 472, rows for pxH=472 with rowHeight=20 gap=12 = (472+12)/(20+12) ≈ 15.125 → 15.
     expect(packed[0].h).toBe(15);
   });
+  test("does not shrink aspect-locked new tiles below explicit minSpan to satisfy maxRows", () => {
+    const merged = mergeLayout(
+      [],
+      [{ id: "image", aspect: 1, preferredSpan: 8, minSpan: 3 }],
+      { ...OPTS, maxRows: 5 },
+    );
+
+    expect(merged[0]).toMatchObject({ i: "image", x: 0, y: 0, w: 3, h: 6 });
+    expect(merged[0]!.y + merged[0]!.h).toBeGreaterThan(5);
+  });
 });
 
 describe("mergeLayout", () => {

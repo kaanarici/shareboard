@@ -139,13 +139,12 @@ export function Canvas({
     [items, aspectCache.snapshot],
   );
 
-  // Persist a measured tweet ratio under a stable key (tweet id) so the cache
-  // survives reloads and cross-board visits.
+  // Persist stable shared-image ratios, but keep blob URLs memory-only.
   const handleMeasureImage = useCallback(
     (item: CanvasItem, ratio: number) => {
       if (item.type !== "image") return;
       const key = "url" in item ? `image:${item.url}` : `image:${item.id}`;
-      aspectCache.set(key, ratio, { persist: "url" in item });
+      aspectCache.set(key, ratio, { persist: "url" in item && !item.url.startsWith("blob:") });
     },
     [aspectCache],
   );

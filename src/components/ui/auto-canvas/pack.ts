@@ -618,7 +618,7 @@ function placeFresh(
   const preferredSpan = chooseSpan(spec, options);
 
   if (spec.aspect && spec.aspect > 0 && maxRows && maxRows > 0) {
-    const minSpan = 1;
+    const minSpan = Math.max(1, spec.minSpan ?? 1);
     for (let w = preferredSpan; w >= minSpan; w--) {
       const h = chooseRows(spec, w, options);
       const open = firstOpenPosition({ w, h }, layouts, options);
