@@ -1,6 +1,5 @@
 import type { TileSpec, TileSpecMap } from "@/components/ui/auto-canvas";
 import type { CanvasItem } from "./types";
-import { extractTweetId } from "./youtube";
 
 /** Grid constants shared between layout generation and the canvas renderer. */
 export const LG_COLS = 24;
@@ -34,15 +33,15 @@ export function tileSpecFor(
   aspectCache?: ReadonlyMap<string, number>,
 ): TileSpec {
   if (item.type === "url" && item.platform === "twitter") {
-    const tweetId = extractTweetId(item.url);
-    const cachedAspect = tweetId ? aspectCache?.get(`tweet:${tweetId}`) : undefined;
+    // Flex, NOT aspect-locked: the embed scrolls, so the user resizes it
+    // freely. Aspect-locking coupled every tweet's height to its width and to
+    // the others' through repacking — resize one and they all jumped.
     return {
-      aspect: cachedAspect,
       maxWidthPx: TWEET_MAX_WIDTH_PX,
       preferredSpan: 8,
-      preferredRows: cachedAspect ? undefined : 16,
+      preferredRows: 16,
       minSpan: 4,
-      minRows: 6,
+      minRows: 5,
     };
   }
 

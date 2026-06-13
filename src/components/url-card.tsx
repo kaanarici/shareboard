@@ -11,20 +11,14 @@ const TweetEmbed = lazy(() => import("./tweet-embed").then((module) => ({ defaul
 export function UrlCard({
   item,
   readonly,
-  onMeasureTweet,
 }: {
   item: UrlItem;
   readonly?: boolean;
-  onMeasureTweet?: (ratio: number) => void;
 }) {
   if (item.platform === "twitter") {
     return (
       <Suspense fallback={<TweetEmbedFallback />}>
-        <TweetEmbed
-          url={item.url}
-          interactionOverlay={!readonly}
-          onMeasure={onMeasureTweet}
-        />
+        <TweetEmbed url={item.url} interactionOverlay={!readonly} />
       </Suspense>
     );
   }

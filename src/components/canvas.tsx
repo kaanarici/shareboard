@@ -17,7 +17,6 @@ import {
   LG_BREAKPOINT,
   buildTileSpecs,
 } from "@/lib/tile-specs";
-import { extractTweetId } from "@/lib/youtube";
 import { useIsMobile } from "@/lib/use-is-mobile";
 
 const NoteCard = lazy(() => import("./note-card").then((module) => ({ default: module.NoteCard })));
@@ -141,16 +140,6 @@ export function Canvas({
 
   // Persist a measured tweet ratio under a stable key (tweet id) so the cache
   // survives reloads and cross-board visits.
-  const handleMeasureTweet = useCallback(
-    (item: CanvasItem, ratio: number) => {
-      if (item.type !== "url" || item.platform !== "twitter") return;
-      const tweetId = extractTweetId(item.url);
-      if (!tweetId) return;
-      aspectCache.set(`tweet:${tweetId}`, ratio);
-    },
-    [aspectCache],
-  );
-
   const handleMeasureImage = useCallback(
     (item: CanvasItem, ratio: number) => {
       if (item.type !== "image") return;
@@ -324,15 +313,7 @@ export function Canvas({
   const renderItemBody = (item: CanvasItem) => (
     <>
       {item.type === "url" && (
-        <UrlCard
-          item={item}
-          readonly={readonly}
-          onMeasureTweet={
-            isTwitterItem(item)
-              ? (ratio) => handleMeasureTweet(item, ratio)
-              : undefined
-          }
-        />
+        <UrlCard item={item} readonly={readonly} />
       )}
       {item.type === "image" && (
         <ImageCard
