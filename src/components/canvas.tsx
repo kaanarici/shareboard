@@ -21,8 +21,9 @@ import { useIsMobile } from "@/lib/use-is-mobile";
 
 const NoteCard = lazy(() => import("./note-card").then((module) => ({ default: module.NoteCard })));
 
-/** localStorage key for the tweet aspect-ratio cache. Exported for tests only. */
-export const TWEET_ASPECT_STORAGE_KEY = "shareboard_tweet_aspects";
+/** localStorage key for the image aspect-ratio cache. Exported for tests only.
+ * (Value kept as the historical "tweet" key so existing caches aren't orphaned.) */
+export const ASPECT_STORAGE_KEY = "shareboard_tweet_aspects";
 
 function isTwitterItem(item: CanvasItem): boolean {
   return item.type === "url" && item.platform === "twitter";
@@ -95,9 +96,9 @@ export function Canvas({
   const lassoResetTimerRef = useRef<number | null>(null);
   const modifiedMouseSelectRef = useRef(false);
 
-  // Persisted aspect cache — tweets that have been seen in any board on this
-  // device place correctly on first paint on the next visit.
-  const aspectCache = useAspectCache({ storageKey: TWEET_ASPECT_STORAGE_KEY });
+  // Persisted aspect cache — shared-board images keep their measured ratio
+  // across reloads so they place correctly on first paint.
+  const aspectCache = useAspectCache({ storageKey: ASPECT_STORAGE_KEY });
 
   // Stash the latest onMaxRowsChange so the observer always calls the current
   // callback without resubscribing.
