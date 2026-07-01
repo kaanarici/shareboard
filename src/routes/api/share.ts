@@ -1,5 +1,4 @@
-import { randomBytes, createHash, pbkdf2, timingSafeEqual } from "node:crypto";
-import { promisify } from "node:util";
+import { randomBytes, createHash } from "node:crypto";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   getObjectResponse,
@@ -20,6 +19,8 @@ import {
 } from "@/lib/server/share-storage";
 import { RATE_LIMIT_BINDINGS, takeRateLimit } from "@/lib/rate-limit";
 import { getClientIp, isSameOrigin } from "@/lib/server/request";
+import { createPinVerifier, lockedCanvasKey, verifyPin } from "@/lib/server/locked-share";
+import { cleanPin, LOCKED_SHARE_PIN_LENGTH } from "@/lib/locked-share-pin";
 import {
   SANITIZE_LIMITS,
   sanitizeAuthorProfile,
@@ -59,8 +60,6 @@ type EncryptedSharePayload = Omit<EncryptedCanvasEnvelope, "deleteTokenHash">;
 
 const IMAGE_CACHE_CONTROL = "public, max-age=31536000, immutable";
 const MANIFEST_CACHE_CONTROL = "public, max-age=60, s-maxage=300, stale-while-revalidate=3600";
-const LOCKED_PIN_ITERATIONS = 100_000;
-const pbkdf2Async = promisify(pbkdf2);
 
 class ShareError extends Error {
   constructor(message: string, public readonly status: number) {
@@ -75,27 +74,6 @@ function badRequest(message: string): never {
 
 function createShareId() {
   return randomBytes(18).toString("base64url");
-}
-
-async function getRuntimeSecret() {
-  try {
-    const cf = await import(/* @vite-ignore */ "cloudflare:workers");
-    const secret = String(cf.env?.SHAREBOARD_LOCKED_STORAGE_SECRET ?? "").trim();
-    if (secret) return secret;
-    if (!String(cf.env?.R2_PUBLIC_URL ?? "").trim()) return "shareboard-local-locked-storage";
-  } catch {
-    // Local preview falls back below.
-  }
-  const secret = String(process.env.SHAREBOARD_LOCKED_STORAGE_SECRET ?? "").trim();
-  if (secret) return secret;
-  if (!String(process.env.R2_PUBLIC_URL ?? "").trim()) return "shareboard-local-locked-storage";
-  throw new Error("Locked share storage secret is not configured");
-}
-
-async function lockedCanvasKey(id: string) {
-  const secret = await getRuntimeSecret();
-  const digest = createHash("sha256").update(secret).update(":").update(id).digest("base64url");
-  return `locked/${digest}.json`;
 }
 
 function isSocialHost(url: string, kind: "x" | "instagram" | "linkedin"): boolean {
@@ -164,32 +142,8 @@ function keepToken(value: unknown, max: number) {
   return typeof value === "string" && value.length <= max && /^[A-Za-z0-9_-]+$/.test(value) ? value : "";
 }
 
-function cleanPin(value: unknown) {
-  return typeof value === "string" ? value.replace(/\D/g, "").slice(0, 6) : "";
-}
-
-async function createPinVerifier(pin: string): Promise<NonNullable<EncryptedCanvasEnvelope["pinVerifier"]>> {
-  const salt = randomBytes(16);
-  const hash = await pbkdf2Async(pin, salt, LOCKED_PIN_ITERATIONS, 32, "sha256");
-  return {
-    kdf: "PBKDF2-SHA-256",
-    iterations: LOCKED_PIN_ITERATIONS,
-    salt: salt.toString("base64url"),
-    hash: hash.toString("base64url"),
-  };
-}
-
-async function verifyPin(pin: string, verifier: NonNullable<EncryptedCanvasEnvelope["pinVerifier"]>) {
-  if (verifier.kdf !== "PBKDF2-SHA-256") return false;
-  const expected = Buffer.from(verifier.hash, "base64url");
-  const actual = await pbkdf2Async(
-    pin,
-    Buffer.from(verifier.salt, "base64url"),
-    verifier.iterations,
-    expected.byteLength,
-    "sha256"
-  );
-  return expected.byteLength === actual.byteLength && timingSafeEqual(expected, actual);
+function readPin(value: unknown) {
+  return typeof value === "string" ? cleanPin(value) : "";
 }
 
 function parsePayload(raw: string | undefined): ShareRequestPayload {
@@ -216,8 +170,8 @@ function parseUnlockRequest(value: unknown): { id: string; pin: string } | null 
   const body = value as Record<string, unknown>;
   if (body.action !== "unlock") return null;
   const id = keepToken(body.id, 80);
-  const pin = cleanPin(body.pin);
-  return id && pin.length === 6 ? { id, pin } : null;
+  const pin = readPin(body.pin);
+  return id && pin.length === LOCKED_SHARE_PIN_LENGTH ? { id, pin } : null;
 }
 
 function parseStoredJson(raw: string): unknown | null {
@@ -546,8 +500,8 @@ export const Route = createFileRoute("/api/share")({
           const encryptedRaw = form.get("encryptedPayload")?.toString();
           if (encryptedRaw) {
             const payload = parseEncryptedPayload(encryptedRaw);
-            const pin = cleanPin(form.get("pin"));
-            if (pin.length !== 6) badRequest("Invalid PIN");
+            const pin = readPin(form.get("pin"));
+            if (pin.length !== LOCKED_SHARE_PIN_LENGTH) badRequest("Invalid PIN");
             const { key: lockedKey, raw: existing } = await readLockedCanvasRaw(payload.id, lockedCanvasKey);
 
             let priorImageKeys: string[] = [];
