@@ -260,68 +260,75 @@ function sanitizePageLayouts(value: unknown, items: readonly { id: string }[]): 
   return lg.length || sm.length ? { lg, sm } : undefined;
 }
 
+/**
+ * Shared pages→items traversal for the three canvas sanitizers, which differ
+ * only in item policy and caps: pages need an id, items pass through
+ * `sanitizeItem`, layouts are pruned to surviving items, dead pages drop.
+ */
+function sanitizePages<T extends { id: string }>(
+  value: unknown,
+  sanitizeItem: (item: unknown) => T | null,
+  limits?: { maxPages: number; maxItemsPerPage: number },
+): { id: string; items: T[]; layouts?: GridLayouts }[] {
+  if (!Array.isArray(value)) return [];
+  const rawPages = limits ? value.slice(0, limits.maxPages) : value;
+  return rawPages
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const page = entry as Record<string, unknown>;
+      const id = trimText(page.id, 80);
+      if (!id) return null;
+      const rawItems = Array.isArray(page.items)
+        ? limits
+          ? page.items.slice(0, limits.maxItemsPerPage)
+          : page.items
+        : [];
+      const items = rawItems.map(sanitizeItem).filter((item): item is T => !!item);
+      return { id, items, layouts: sanitizePageLayouts(page.layouts, items) };
+    })
+    .filter((page): page is NonNullable<typeof page> => !!page);
+}
+
+function sanitizeCanvasEnvelope(
+  canvas: Record<string, unknown>,
+  pages: Canvas["pages"],
+  fallbackId: string,
+): Canvas {
+  const authorProfile = sanitizeAuthorProfile(canvas.authorProfile);
+  return {
+    id: trimText(canvas.id, 80) || fallbackId,
+    author: trimText(canvas.author, SANITIZE_LIMITS.maxAuthorChars) || "Anonymous",
+    ...(authorProfile ? { authorProfile } : {}),
+    pages,
+    createdAt: trimText(canvas.createdAt, 40) || new Date().toISOString(),
+  };
+}
+
 export function sanitizeShareRequestPayload(value: unknown): ShareRequestPayload | null {
   if (!value || typeof value !== "object") return null;
   const payload = value as Record<string, unknown>;
-  const pages = Array.isArray(payload.pages)
-    ? payload.pages.map((entry) => {
-        if (!entry || typeof entry !== "object") return null;
-        const page = entry as Record<string, unknown>;
-        const id = trimText(page.id, 80);
-        if (!id) return null;
-        const items = Array.isArray(page.items)
-          ? page.items.map(sanitizeShareRequestItem).filter((item): item is ShareRequestItem => !!item)
-          : [];
-        return {
-          id,
-          layouts: sanitizePageLayouts(page.layouts, items),
-          items,
-        };
-      })
-    : [];
-
-  const cleanPages = pages.filter((page): page is NonNullable<typeof page> => !!page);
-  if (cleanPages.length === 0) return null;
+  const pages = sanitizePages(payload.pages, sanitizeShareRequestItem);
+  if (pages.length === 0) return null;
   return {
     author: payload.author,
     authorProfile: payload.authorProfile,
-    pages: cleanPages,
+    pages,
   };
 }
 
 export function sanitizeTinyCanvas(value: unknown, limits = { maxPages: 12, maxItemsPerPage: 60 }): Canvas | null {
   if (!value || typeof value !== "object") return null;
   const canvas = value as Record<string, unknown>;
-  const pages = Array.isArray(canvas.pages)
-    ? canvas.pages
-        .slice(0, limits.maxPages)
-        .map((entry) => {
-          if (!entry || typeof entry !== "object") return null;
-          const page = entry as Record<string, unknown>;
-          const id = trimText(page.id, 80);
-          const items = Array.isArray(page.items)
-            ? page.items
-                .slice(0, limits.maxItemsPerPage)
-                .map((item): ShareableCanvasItem | null => {
-                  const sanitized = sanitizeShareRequestItem(item);
-                  return sanitized && sanitized.type !== "image" ? sanitized : null;
-                })
-                .filter((item): item is ShareableCanvasItem => !!item)
-            : [];
-          return id ? { id, items, layouts: sanitizePageLayouts(page.layouts, items) } : null;
-        })
-        .filter((page): page is NonNullable<typeof page> => !!page)
-    : [];
-
+  const pages = sanitizePages(
+    canvas.pages,
+    (item): ShareableCanvasItem | null => {
+      const sanitized = sanitizeShareRequestItem(item);
+      return sanitized && sanitized.type !== "image" ? sanitized : null;
+    },
+    limits,
+  );
   if (!pages.some((page) => page.items.length > 0)) return null;
-  const authorProfile = sanitizeAuthorProfile(canvas.authorProfile);
-  return {
-    id: trimText(canvas.id, 80) || "tiny",
-    author: trimText(canvas.author, SANITIZE_LIMITS.maxAuthorChars) || "Anonymous",
-    ...(authorProfile ? { authorProfile } : {}),
-    pages,
-    createdAt: trimText(canvas.createdAt, 40) || new Date().toISOString(),
-  };
+  return sanitizeCanvasEnvelope(canvas, pages, "tiny");
 }
 
 export function sanitizePublicCanvasManifest(
@@ -330,32 +337,12 @@ export function sanitizePublicCanvasManifest(
 ): Canvas | null {
   if (!value || typeof value !== "object") return null;
   const canvas = value as Record<string, unknown>;
-  const pages = Array.isArray(canvas.pages)
-    ? canvas.pages.map((entry) => {
-        if (!entry || typeof entry !== "object") return null;
-        const page = entry as Record<string, unknown>;
-        const id = trimText(page.id, 80);
-        const items = Array.isArray(page.items)
-          ? page.items
-              .map((item) => sanitizeShareableCanvasItem(item, options))
-              .filter((item): item is ShareableCanvasItem => !!item)
-          : [];
-        return id ? { id, items, layouts: sanitizePageLayouts(page.layouts, items) } : null;
-      })
-    : [];
-  const cleanPages = pages.filter((page): page is NonNullable<typeof page> => !!page);
-  if (!cleanPages.some((page) => page.items.length > 0)) return null;
-  const authorProfile = sanitizeAuthorProfile(canvas.authorProfile);
+  const pages = sanitizePages(canvas.pages, (item) => sanitizeShareableCanvasItem(item, options));
+  if (!pages.some((page) => page.items.length > 0)) return null;
+  const previewUrl = keepStoredPreviewUrl(canvas.previewUrl, SANITIZE_LIMITS.maxOgImageChars);
   return {
-    id: trimText(canvas.id, 80) || "shared",
-    author: trimText(canvas.author, SANITIZE_LIMITS.maxAuthorChars) || "Anonymous",
-    ...(authorProfile ? { authorProfile } : {}),
-    pages: cleanPages,
-    createdAt: trimText(canvas.createdAt, 40) || new Date().toISOString(),
+    ...sanitizeCanvasEnvelope(canvas, pages, "shared"),
     ...(typeof canvas.deleteTokenHash === "string" ? { deleteTokenHash: canvas.deleteTokenHash } : {}),
-    ...((() => {
-      const url = keepStoredPreviewUrl(canvas.previewUrl, SANITIZE_LIMITS.maxOgImageChars);
-      return url ? { previewUrl: url } : {};
-    })()),
+    ...(previewUrl ? { previewUrl } : {}),
   };
 }
