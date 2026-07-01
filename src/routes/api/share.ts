@@ -19,6 +19,7 @@ import {
   rollbackUploadedObjects,
 } from "@/lib/server/share-storage";
 import { RATE_LIMIT_BINDINGS, takeRateLimit } from "@/lib/rate-limit";
+import { getClientIp, isSameOrigin } from "@/lib/server/request";
 import {
   SANITIZE_LIMITS,
   sanitizeAuthorProfile,
@@ -124,27 +125,6 @@ function sanitizeStrictAuthorProfile(value: unknown) {
   if (profile.instagramUrl && !isSocialHost(profile.instagramUrl, "instagram")) delete profile.instagramUrl;
   if (profile.linkedinUrl && !isSocialHost(profile.linkedinUrl, "linkedin")) delete profile.linkedinUrl;
   return Object.keys(profile).length ? profile : undefined;
-}
-
-function getClientIp(request: Request) {
-  return (
-    request.headers.get("cf-connecting-ip") ||
-    request.headers.get("x-real-ip") ||
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    "unknown"
-  );
-}
-
-/**
- * Reject cross-origin browser requests. Same-origin browser calls always send
- * `Origin`; server-side callers (curl, scripts) usually omit it — we allow the
- * absent case so smoke tests still work. Shape: "https://shareboard.example".
- */
-function isSameOrigin(request: Request): boolean {
-  const origin = request.headers.get("origin");
-  if (!origin) return true;
-  const expected = new URL(request.url).origin;
-  return origin === expected;
 }
 
 function hashToken(token: string) {
@@ -500,7 +480,7 @@ export const Route = createFileRoute("/api/share")({
         if (!isSameOrigin(request)) {
           return Response.json({ error: "Forbidden" }, { status: 403 });
         }
-        const ip = getClientIp(request);
+        const ip = getClientIp(request) ?? "unknown";
         const contentType = request.headers.get("content-type") || "";
         if (contentType.includes("application/json")) {
           try {
@@ -759,7 +739,7 @@ export const Route = createFileRoute("/api/share")({
         if (!isSameOrigin(request)) {
           return Response.json({ error: "Forbidden" }, { status: 403 });
         }
-        const ip = getClientIp(request);
+        const ip = getClientIp(request) ?? "unknown";
         const rate = await takeRateLimit(`share-delete:${ip}`, 10, 10 * 60 * 1000, {
           binding: RATE_LIMIT_BINDINGS.shareDelete,
         });

@@ -1,17 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { RATE_LIMIT_BINDINGS, takeRateLimit } from "@/lib/rate-limit";
 import { BROWSER_UA, fetchPublicUrl } from "@/lib/safe-fetch";
+import { getClientIp } from "@/lib/server/request";
 
 const MAX_HTML_BYTES = 2 * 1024 * 1024;
 const HEAD_CLOSE = "</head>";
-
-function getClientIp(request: Request): string | null {
-  const ip =
-    request.headers.get("cf-connecting-ip") ||
-    request.headers.get("x-real-ip") ||
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  return ip && ip.length > 0 ? ip : null;
-}
 
 async function readHeadHtml(response: Response) {
   const reader = response.body?.getReader();

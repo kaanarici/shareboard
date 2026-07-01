@@ -3,6 +3,7 @@ import { getTweet } from "react-tweet/api";
 import type { Tweet as TweetData } from "react-tweet/api";
 import { storedObjectHeaders } from "@/lib/r2";
 import { takeRateLimit } from "@/lib/rate-limit";
+import { getClientIp } from "@/lib/server/request";
 
 const TWEET_CACHE_CONTROL = "public, max-age=3600, s-maxage=86400";
 const TWEET_RATE_LIMIT = { count: 60, windowMs: 5 * 60 * 1000 };
@@ -38,14 +39,6 @@ function errorHeaders(headers: Record<string, string> = {}) {
     "Cache-Control": "no-store",
     ...headers,
   });
-}
-
-function getClientIp(request: Request): string | null {
-  const ip =
-    request.headers.get("cf-connecting-ip") ||
-    request.headers.get("x-real-ip") ||
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  return ip && ip.length > 0 ? ip : null;
 }
 
 // The 2026 syndication response ships `entities` with only `urls`; react-tweet's

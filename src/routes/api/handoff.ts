@@ -9,6 +9,7 @@ import {
   storedObjectHeaders,
 } from "@/lib/r2";
 import { takeRateLimit } from "@/lib/rate-limit";
+import { getClientIp, isSameOrigin } from "@/lib/server/request";
 
 export const HANDOFF_MAX_CIPHERTEXT_BYTES = 1.5 * 1024 * 1024;
 export const HANDOFF_MAX_TTL_MS = 60 * 60 * 1000;
@@ -46,20 +47,6 @@ function json(body: unknown, init: ResponseInit = {}) {
 
 function handoffKey(storageId: string) {
   return `handoff/${storageId}.json`;
-}
-
-function getClientIp(request: Request) {
-  return (
-    request.headers.get("cf-connecting-ip") ||
-    request.headers.get("x-real-ip") ||
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    "unknown"
-  );
-}
-
-function isSameOrigin(request: Request) {
-  const origin = request.headers.get("origin");
-  return !origin || origin === new URL(request.url).origin;
 }
 
 function readBase64Url(value: unknown) {
@@ -190,7 +177,7 @@ export const Route = createFileRoute("/api/handoff")({
           return json({ error: "Forbidden" }, { status: 403 });
         }
 
-        const ip = getClientIp(request);
+        const ip = getClientIp(request) ?? "unknown";
         const rate = await takeRateLimit(
           `handoff-create:${ip}`,
           HANDOFF_CREATE_LIMIT.count,
@@ -225,7 +212,7 @@ export const Route = createFileRoute("/api/handoff")({
       },
 
       GET: async ({ request }) => {
-        const ip = getClientIp(request);
+        const ip = getClientIp(request) ?? "unknown";
         const rate = await takeRateLimit(
           `handoff-read:${ip}`,
           HANDOFF_READ_LIMIT.count,
