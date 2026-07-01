@@ -15,7 +15,12 @@ import {
   type BoardHistoryEntry,
 } from "@/lib/store";
 import { fetchStoredCanvas } from "@/lib/board-import";
-import { createHistoryEntry, prepareLockedShare, preparePublicShare } from "@/lib/share-workflow";
+import {
+  createHistoryEntry,
+  prepareLockedShare,
+  preparePublicShare,
+  type ShareMetadata,
+} from "@/lib/share-workflow";
 import { useIsMobile } from "@/lib/use-is-mobile";
 import { notify } from "@/lib/toast";
 import {
@@ -83,6 +88,45 @@ export function useShareFlows({
     [markShareCopied],
   );
 
+  // Post-create bookkeeping shared by public and locked shares: persist the
+  // delete token, swap the history entry, hand the new origin to the board,
+  // then copy/announce (replace flows re-copy quietly instead of celebrating).
+  const finalizeSharedBoard = useCallback(
+    async (
+      res: Response,
+      kind: "stored" | "locked",
+      draft: { isReplace: boolean; metadata: ShareMetadata; replaceHistoryId?: string },
+    ) => {
+      const { id, deleteToken } = await readShareCreateResponse(res);
+      const shareUrl = `${window.location.origin}/c/${id}`;
+      saveLastSharedBoard({ id, deleteToken, shareUrl });
+      if (draft.replaceHistoryId) {
+        removeBoardHistoryEntry(draft.replaceHistoryId);
+      }
+      saveBoardHistory(createHistoryEntry({
+        id,
+        kind,
+        shareUrl,
+        metadata: draft.metadata,
+        deleteToken,
+      }));
+      onOriginChange({ kind, id, deleteToken });
+      setHistory(getBoardHistory());
+      if (draft.isReplace) {
+        setLastShareUrl(shareUrl);
+        notify.success("Updated link copied");
+        if (await copyText(shareUrl)) markShareCopied();
+        else {
+          setShareState("idle");
+          setManualShareUrl(shareUrl);
+        }
+        return;
+      }
+      await finishShare(shareUrl);
+    },
+    [finishShare, markShareCopied, onOriginChange],
+  );
+
   const share = useCallback(async () => {
     if (shareInFlightRef.current) return;
     shareInFlightRef.current = true;
@@ -124,39 +168,14 @@ export function useShareFlows({
         }
         return;
       }
-      const { id, deleteToken } = await readShareCreateResponse(res);
-      const shareUrl = `${window.location.origin}/c/${id}`;
-      saveLastSharedBoard({ id, deleteToken, shareUrl });
-      if (draft.replaceHistoryId) {
-        removeBoardHistoryEntry(draft.replaceHistoryId);
-      }
-      saveBoardHistory(createHistoryEntry({
-        id,
-        kind: "stored",
-        shareUrl,
-        metadata: draft.metadata,
-        deleteToken,
-      }));
-      onOriginChange({ kind: "stored", id, deleteToken });
-      setHistory(getBoardHistory());
-      if (draft.isReplace) {
-        setLastShareUrl(shareUrl);
-        notify.success("Updated link copied");
-        if (await copyText(shareUrl)) markShareCopied();
-        else {
-          setShareState("idle");
-          setManualShareUrl(shareUrl);
-        }
-      } else {
-        await finishShare(shareUrl);
-      }
+      await finalizeSharedBoard(res, "stored", draft);
     } catch (error) {
       setShareState("idle");
       notify.error(error instanceof Error ? error.message : "Failed to share");
     } finally {
       shareInFlightRef.current = false;
     }
-  }, [pages, boardOrigin, isMobile, finishShare, markShareCopied, onOriginChange]);
+  }, [pages, boardOrigin, isMobile, finalizeSharedBoard, finishShare, onOriginChange]);
 
   const shareLocked = useCallback(
     async (pin: string) => {
@@ -180,33 +199,8 @@ export function useShareFlows({
           }
           throw new Error(await readErrorMessage(res, "Failed to create locked share"));
         }
-        const { id: shareId, deleteToken } = await readShareCreateResponse(res);
-        const shareUrl = `${window.location.origin}/c/${shareId}`;
-        saveLastSharedBoard({ id: shareId, deleteToken, shareUrl });
-        if (draft.replaceHistoryId) {
-          removeBoardHistoryEntry(draft.replaceHistoryId);
-        }
-        saveBoardHistory(createHistoryEntry({
-          id: shareId,
-          kind: "locked",
-          shareUrl,
-          metadata: draft.metadata,
-          deleteToken,
-        }));
-        onOriginChange({ kind: "locked", id: shareId, deleteToken });
-        setHistory(getBoardHistory());
         setLockedShareOpen(false);
-        if (draft.isReplace) {
-          setLastShareUrl(shareUrl);
-          notify.success("Updated link copied");
-          if (await copyText(shareUrl)) markShareCopied();
-          else {
-            setShareState("idle");
-            setManualShareUrl(shareUrl);
-          }
-        } else {
-          await finishShare(shareUrl);
-        }
+        await finalizeSharedBoard(res, "locked", draft);
       } catch (error) {
         setShareState("idle");
         notify.error(error instanceof Error ? error.message : "Failed to create locked share");
@@ -215,7 +209,7 @@ export function useShareFlows({
         setLockedShareBusy(false);
       }
     },
-    [pages, boardOrigin, finishShare, markShareCopied, onOriginChange],
+    [pages, boardOrigin, finalizeSharedBoard],
   );
 
   const openHistoryEntry = useCallback(

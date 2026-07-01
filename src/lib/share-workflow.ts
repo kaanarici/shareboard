@@ -14,7 +14,7 @@ import { createTinyShareUrl } from "@/lib/tiny-share";
 import { isDraftImageItem, type AuthorProfile, type BoardPage, type Canvas } from "@/lib/types";
 import type { BoardHistoryEntry } from "@/lib/store";
 
-type ShareMetadata = {
+export type ShareMetadata = {
   title: string;
   itemCount: number;
   pageCount: number;
