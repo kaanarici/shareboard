@@ -58,6 +58,17 @@ function isPrivateIp(address: string): boolean {
   );
 }
 
+/**
+ * Rejects obviously-internal fetch targets: non-http(s) schemes, embedded
+ * credentials, localhost/.local, and private/link-local/CGNAT/ULA ranges when
+ * the host is an IP literal.
+ *
+ * SSRF caveat: this does NOT resolve DNS, so a public hostname that resolves to
+ * a private or cloud-metadata IP (e.g. 169.254.169.254) is not blocked here.
+ * The deployed defense relies on the Cloudflare Workers runtime refusing egress
+ * to private ranges. A self-hoster running this off Workers must add its own
+ * post-resolution IP check (or an egress allowlist) before trusting this guard.
+ */
 async function assertPublicUrl(value: string): Promise<URL> {
   const url = new URL(value);
   const hostname = normalizeHostname(url.hostname);

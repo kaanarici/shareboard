@@ -52,7 +52,7 @@ function getClientIp(request: Request): string | null {
 // enrichment iterates hashtags/symbols/user_mentions and throws "entities is not
 // iterable" when they're absent. Backfill the missing arrays so embeds render.
 function normalizeTweet(tweet: TweetData): TweetData {
-  const entities = (tweet as { entities?: Record<string, unknown> }).entities ?? {};
+  const entities = (tweet as unknown as { entities?: Record<string, unknown> }).entities ?? {};
   return {
     ...tweet,
     entities: {

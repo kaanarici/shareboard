@@ -176,7 +176,7 @@ function addDuplicateAtSourceSize({
   const active = pages[activePage];
   const activeLayouts = active ? packPageLayouts(active.items, active.layouts, maxRows) : null;
   const sourceLayout = activeLayouts?.lg.find((layout) => layout.i === sourceId);
-  if (!active || !sourceLayout) return null;
+  if (!active || !activeLayouts || !sourceLayout) return null;
 
   const slot = firstOpenSlot(activeLayouts.lg, sourceLayout.w, sourceLayout.h, LG_COLS, maxRows);
   if (!slot) return null;

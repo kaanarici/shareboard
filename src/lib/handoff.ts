@@ -10,7 +10,7 @@ export const HANDOFF_CODE_LENGTH = 12;
 export const HANDOFF_CODE_GROUP_SIZE = 4;
 export const HANDOFF_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 // 31^12 is ~59.5 bits; 100k PBKDF2-SHA-256 rounds make offline brute-force
-// computationally infeasible for a 15-minute, one-time handoff payload.
+// computationally infeasible for a one-hour, one-time handoff payload.
 export const HANDOFF_KDF_ITERATIONS = LOCKED_SHARE_ITERATIONS;
 
 const HANDOFF_CODE_PATTERN = new RegExp(

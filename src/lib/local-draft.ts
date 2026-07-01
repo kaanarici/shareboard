@@ -133,7 +133,7 @@ const indexedDbDraftStore = createIndexedDbDraftStore();
  * we reconstruct the previewUrl from the file.
  */
 function stripForStorage(items: CanvasItem[]): unknown[] {
-  return items.flatMap((item) => {
+  return items.flatMap((item): unknown[] => {
     if ((item as { type?: unknown }).type === "board_summary") return [];
     if (isDraftImageItem(item)) {
       const { previewUrl: _ignored, ...rest } = item;

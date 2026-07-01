@@ -48,6 +48,10 @@ const SHARE_LIMITS = {
   maxTotalImageBytes: 75 * 1024 * 1024,
   maxTotalJsonBytes: 2 * 1024 * 1024,
   maxPreviewBytes: 768 * 1024,
+  // Upper bound on the (non-image) manifest JSON string. Comfortably above the
+  // structural max of a real board (12 pages x 60 items of notes/json/urls) so
+  // it never rejects legit input, but caps JSON.parse + sanitize work per POST.
+  maxPayloadChars: 24 * 1024 * 1024,
 } as const;
 
 type EncryptedSharePayload = Omit<EncryptedCanvasEnvelope, "deleteTokenHash">;
@@ -148,7 +152,10 @@ function hashToken(token: string) {
 }
 
 async function sha256Hex(bytes: Uint8Array) {
-  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  // Node's Buffer is Uint8Array<ArrayBufferLike>; WebCrypto's digest wants a
+  // BufferSource backed by ArrayBuffer. These bytes are always ArrayBuffer-backed
+  // (Buffer.from(arrayBuffer)); the cast bridges the @types/node vs DOM generic gap.
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes as BufferSource);
   return Buffer.from(digest).toString("hex");
 }
 
@@ -207,6 +214,7 @@ async function verifyPin(pin: string, verifier: NonNullable<EncryptedCanvasEnvel
 
 function parsePayload(raw: string | undefined): ShareRequestPayload {
   if (!raw) badRequest("Missing payload");
+  if (raw.length > SHARE_LIMITS.maxPayloadChars) badRequest("Board payload is too large");
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw) as unknown;
@@ -692,51 +700,59 @@ export const Route = createFileRoute("/api/share")({
       },
 
       GET: async ({ request }) => {
-        const url = new URL(request.url);
-        const key = trimText(url.searchParams.get("key"), 4096);
-        const canvasId = key.match(/^canvases\/([A-Za-z0-9_-]+)\.json$/)?.[1];
-        if (canvasId) {
-          const publicRaw = await readPublicCanvasRaw(canvasId);
-          if (publicRaw) {
-            const canvas = parseStoredJson(publicRaw);
-            if (isEncryptedCanvas(canvas)) {
-              return Response.json(
-                { id: canvasId, encrypted: true, locked: true },
-                { headers: storedObjectHeaders({ "Cache-Control": "no-store" }) }
-              );
+        try {
+          const url = new URL(request.url);
+          const key = trimText(url.searchParams.get("key"), 4096);
+          const canvasId = key.match(/^canvases\/([A-Za-z0-9_-]+)\.json$/)?.[1];
+          if (canvasId) {
+            const publicRaw = await readPublicCanvasRaw(canvasId);
+            if (publicRaw) {
+              const canvas = parseStoredJson(publicRaw);
+              if (isEncryptedCanvas(canvas)) {
+                return Response.json(
+                  { id: canvasId, encrypted: true, locked: true },
+                  { headers: storedObjectHeaders({ "Cache-Control": "no-store" }) }
+                );
+              }
+              const manifest = sanitizePublicCanvasManifest(canvas);
+              if (!manifest) return Response.json({ error: "Object not found" }, { status: 404 });
+              const etag = manifestEtag(publicRaw);
+              const headers = manifestHeaders(etag);
+              if (matchesIfNoneMatch(request, etag)) {
+                return new Response(null, { status: 304, headers });
+              }
+              return Response.json(manifest, {
+                headers,
+              });
             }
-            const manifest = sanitizePublicCanvasManifest(canvas);
-            if (!manifest) return Response.json({ error: "Object not found" }, { status: 404 });
-            const etag = manifestEtag(publicRaw);
-            const headers = manifestHeaders(etag);
-            if (matchesIfNoneMatch(request, etag)) {
-              return new Response(null, { status: 304, headers });
-            }
-            return Response.json(manifest, {
-              headers,
-            });
+            const { raw: lockedRaw } = await readLockedCanvasRaw(canvasId, lockedCanvasKey);
+            if (!lockedRaw) return Response.json({ error: "Object not found" }, { status: 404 });
+            return Response.json(
+              { id: canvasId, encrypted: true, locked: true },
+              { headers: storedObjectHeaders({ "Cache-Control": "no-store" }) }
+            );
           }
-          const { raw: lockedRaw } = await readLockedCanvasRaw(canvasId, lockedCanvasKey);
-          if (!lockedRaw) return Response.json({ error: "Object not found" }, { status: 404 });
-          return Response.json(
-            { id: canvasId, encrypted: true, locked: true },
-            { headers: storedObjectHeaders({ "Cache-Control": "no-store" }) }
-          );
-        }
 
-        if (
-          !key.startsWith("images/") &&
-          !key.startsWith("locked-images/") &&
-          !key.startsWith("canvases/") &&
-          !key.startsWith("previews/")
-        ) {
-          return Response.json({ error: "Invalid object key" }, { status: 400 });
+          if (
+            !key.startsWith("images/") &&
+            !key.startsWith("locked-images/") &&
+            !key.startsWith("canvases/") &&
+            !key.startsWith("previews/")
+          ) {
+            return Response.json({ error: "Invalid object key" }, { status: 400 });
+          }
+          if (!isSafeObjectKey(key)) {
+            return Response.json({ error: "Invalid object key" }, { status: 400 });
+          }
+          const object = await getObjectResponse(key);
+          return object ?? Response.json({ error: "Object not found" }, { status: 404 });
+        } catch (error) {
+          // Locked-key derivation throws when the storage secret is unconfigured;
+          // surface a clean status instead of an unhandled framework 500.
+          const message = error instanceof Error ? error.message : "Failed to read object";
+          const status = /secret is not configured/i.test(message) ? 503 : 500;
+          return Response.json({ error: status === 503 ? message : "Failed to read object" }, { status });
         }
-        if (!isSafeObjectKey(key)) {
-          return Response.json({ error: "Invalid object key" }, { status: 400 });
-        }
-        const object = await getObjectResponse(key);
-        return object ?? Response.json({ error: "Object not found" }, { status: 404 });
       },
 
       DELETE: async ({ request }) => {

@@ -137,8 +137,11 @@ export async function deleteStoredCanvas(params: {
 }) {
   const { id, canvasKey, canvas } = params;
   const keys = "images" in canvas ? collectLockedCanvasImageKeys(canvas) : await collectPublicCanvasImageKeys(canvas);
-  await deleteObjectsStrict(keys);
+  // Delete the manifest first: once it's gone the board no longer resolves, so a
+  // failure while removing image objects leaves harmless orphans (swept by R2
+  // lifecycle expiry) rather than a live manifest pointing at missing images.
   await deleteObjectsStrict([canvasKey]);
+  await rollbackUploadedObjects(keys);
   if (!("images" in canvas)) {
     await deletePreviewBestEffort(id);
   }

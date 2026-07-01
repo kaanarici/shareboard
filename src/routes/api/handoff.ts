@@ -84,12 +84,13 @@ function parseStoredHandoff(raw: string | null): StoredHandoff | null {
     const ciphertextBytes = readBase64Url(parsed.ciphertext);
     const ivBytes = readBase64Url(parsed.iv);
     const saltBytes = readBase64Url(parsed.salt);
+    const expiresAt = Number(parsed.expiresAt);
     if (
       parsed.v !== 1 ||
       typeof parsed.ciphertext !== "string" ||
       typeof parsed.iv !== "string" ||
       typeof parsed.salt !== "string" ||
-      !Number.isFinite(parsed.expiresAt) ||
+      !Number.isFinite(expiresAt) ||
       !ciphertextBytes ||
       ciphertextBytes.byteLength > HANDOFF_MAX_CIPHERTEXT_BYTES ||
       ivBytes?.byteLength !== 12 ||
@@ -102,7 +103,7 @@ function parseStoredHandoff(raw: string | null): StoredHandoff | null {
       ciphertext: parsed.ciphertext,
       iv: parsed.iv,
       salt: parsed.salt,
-      expiresAt: Math.floor(parsed.expiresAt),
+      expiresAt: Math.floor(expiresAt),
     };
   } catch {
     return null;

@@ -29,7 +29,7 @@ function toStoredLayout(layout: Layout, columns: number, maxRows?: number): Layo
   });
 }
 
-function sameLayout(a: LayoutItem[] | undefined, b: LayoutItem[] | undefined): boolean {
+function sameLayout(a: readonly LayoutItem[] | undefined, b: readonly LayoutItem[] | undefined): boolean {
   if (a === b) return true;
   if (!a || !b || a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) {

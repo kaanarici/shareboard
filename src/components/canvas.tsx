@@ -143,8 +143,9 @@ export function Canvas({
   const handleMeasureImage = useCallback(
     (item: CanvasItem, ratio: number) => {
       if (item.type !== "image") return;
-      const key = "url" in item ? `image:${item.url}` : `image:${item.id}`;
-      aspectCache.set(key, ratio, { persist: "url" in item && !item.url.startsWith("blob:") });
+      const url = "url" in item ? item.url : undefined;
+      const key = url ? `image:${url}` : `image:${item.id}`;
+      aspectCache.set(key, ratio, { persist: !!url && !url.startsWith("blob:") });
     },
     [aspectCache],
   );

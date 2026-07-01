@@ -330,8 +330,8 @@ function rectsOverlap(
 }
 
 export function resolveDisplacedLayout(
-  next: LayoutItem[],
-  before: LayoutItem[],
+  next: readonly LayoutItem[],
+  before: readonly LayoutItem[],
   movedId: string,
   options: ResolveDisplacementOptions,
 ): LayoutItem[] | null {
@@ -380,8 +380,8 @@ export function resolveDisplacedLayout(
 }
 
 export function resolveGroupedDragLayout(
-  next: LayoutItem[],
-  before: LayoutItem[],
+  next: readonly LayoutItem[],
+  before: readonly LayoutItem[],
   movedId: string,
   selectedIds: readonly string[] | undefined,
   options: ResolveDisplacementOptions,
@@ -407,8 +407,8 @@ export function resolveGroupedDragLayout(
 }
 
 function resolveInsertedLayout(
-  next: LayoutItem[],
-  before: LayoutItem[],
+  next: readonly LayoutItem[],
+  before: readonly LayoutItem[],
   moved: LayoutItem,
   options: ResolveDisplacementOptions,
 ): LayoutItem[] | null {

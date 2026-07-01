@@ -26,8 +26,14 @@ type RateLimitOptions = {
   binding?: RateLimitBindingName;
 };
 
-// Global rate limiter shape: `share:203.0.113.4 -> { count: 2, resetAt: 1710000000000 }`.
+// In-process rate limiter shape: `share:203.0.113.4 -> { count: 2, resetAt: ... }`.
 // Pinned to globalThis so HMR / module reloads in dev don't clear in-flight windows.
+//
+// Scope caveat: this Map lives inside one JS process. It is accurate in local
+// dev/preview (single long-lived process), but on Cloudflare Workers each colo
+// spins up short-lived, non-shared isolates, so this Map enforces close to
+// nothing in production — the Cloudflare `ratelimits` bindings (see
+// takeCloudflareRateLimit) are the real cross-request limiter there.
 const store = globalThis.__shareboardRateLimitStore ?? new Map<string, RateWindow>();
 globalThis.__shareboardRateLimitStore = store;
 
@@ -105,7 +111,8 @@ async function takeCloudflareRateLimit(
   if (!binding?.limit) return { ok: true, retryAfterSeconds: 0 };
 
   // Cloudflare rate limits are per-colo/eventually consistent: useful abuse
-  // damping, not accounting. The Map above remains the precise local window.
+  // damping, not exact accounting — but in production they are the authoritative
+  // cross-request limiter, since the in-memory Map above is per-isolate.
   const result = await binding.limit({ key });
   return {
     ok: result.success,

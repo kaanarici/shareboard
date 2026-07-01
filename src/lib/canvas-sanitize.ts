@@ -156,6 +156,11 @@ export function sanitizeUrlItem(value: unknown) {
   };
 }
 
+// SECURITY: `text` is untrusted tiptap-authored HTML. This only length-bounds
+// it — it is NOT HTML-sanitized here. Every render path must feed it back
+// through tiptap/ProseMirror (which drops disallowed nodes/attrs on parse); do
+// NOT render note text via innerHTML/dangerouslySetInnerHTML, or it becomes
+// stored XSS on shared boards.
 export function sanitizeNoteItem(value: unknown) {
   if (!value || typeof value !== "object") return null;
   const item = value as Record<string, unknown>;

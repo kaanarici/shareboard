@@ -11,7 +11,8 @@
     "cf-typegen": "wrangler types",
     "start": "vite dev",
     "preview": "vite preview",
-    "lint": "eslint"
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.0",
