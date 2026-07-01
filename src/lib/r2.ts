@@ -111,6 +111,60 @@ async function bucket() {
   return (await getCloudflareEnv()).SHAREBOARD_R2;
 }
 
+type StoredObject = { bytes: Uint8Array<ArrayBuffer> | ArrayBuffer; contentType: string };
+
+type StorageBackend = {
+  /** Stores the object and returns its public URL. */
+  put(key: string, body: StorageBody, contentType: string, cacheControl: string): Promise<string>;
+  get(key: string): Promise<StoredObject | null>;
+  delete(key: string): Promise<void>;
+};
+
+function r2Backend(boundBucket: R2Bucket): StorageBackend {
+  return {
+    async put(key, body, contentType, cacheControl) {
+      await boundBucket.put(key, body, {
+        httpMetadata: { contentType, cacheControl },
+      });
+      const baseUrl = await publicBaseUrl();
+      return baseUrl ? publicUrl(baseUrl, key) : localObjectUrl(key);
+    },
+    async get(key) {
+      const object = await boundBucket.get(key);
+      if (!object) return null;
+      return {
+        bytes: await object.arrayBuffer(),
+        contentType: object.httpMetadata?.contentType || "application/octet-stream",
+      };
+    },
+    async delete(key) {
+      await boundBucket.delete(key);
+    },
+  };
+}
+
+const localFsBackend: StorageBackend = {
+  put: (key, body, contentType) => localPut(key, body, contentType),
+  async get(key) {
+    const object = await localGet(key);
+    return object ? { bytes: new Uint8Array(object.bytes), contentType: object.contentType } : null;
+  },
+  delete: localDelete,
+};
+
+async function getBackend(): Promise<StorageBackend | null> {
+  const boundBucket = await bucket();
+  if (boundBucket) return r2Backend(boundBucket);
+  if (canUseLocalStorage()) return localFsBackend;
+  return null;
+}
+
+async function requireBackend(): Promise<StorageBackend> {
+  const backend = await getBackend();
+  if (!backend) throw new Error("Sharing storage is not configured");
+  return backend;
+}
+
 export async function putObject(
   key: string,
   body: string,
@@ -126,52 +180,18 @@ export async function putBuffer(
   cacheControl = "no-store",
 ): Promise<string> {
   assertSafeKey(key);
-  const boundBucket = await bucket();
-  if (boundBucket) {
-    await boundBucket.put(key, body, {
-      httpMetadata: { contentType, cacheControl },
-    });
-    const baseUrl = await publicBaseUrl();
-    return baseUrl ? publicUrl(baseUrl, key) : localObjectUrl(key);
-  }
-
-  if (canUseLocalStorage()) {
-    return localPut(key, body, contentType);
-  }
-
-  throw new Error("Sharing storage is not configured");
+  return (await requireBackend()).put(key, body, contentType, cacheControl);
 }
 
 export async function getObjectText(key: string): Promise<string | null> {
   assertSafeKey(key);
-  const boundBucket = await bucket();
-  if (boundBucket) {
-    const object = await boundBucket.get(key);
-    return object ? object.text() : null;
-  }
-
-  if (canUseLocalStorage()) {
-    const object = await localGet(key);
-    return object ? object.bytes.toString("utf8") : null;
-  }
-
-  throw new Error("Sharing storage is not configured");
+  const object = await (await requireBackend()).get(key);
+  return object ? new TextDecoder().decode(object.bytes) : null;
 }
 
 export async function deleteObject(key: string) {
   assertSafeKey(key);
-  const boundBucket = await bucket();
-  if (boundBucket) {
-    await boundBucket.delete(key);
-    return;
-  }
-
-  if (canUseLocalStorage()) {
-    await localDelete(key);
-    return;
-  }
-
-  throw new Error("Sharing storage is not configured");
+  await (await requireBackend()).delete(key);
 }
 
 export async function getObjectKeyFromPublicUrlAsync(url: string): Promise<string | null> {
@@ -189,30 +209,16 @@ export async function getObjectKeyFromPublicUrlAsync(url: string): Promise<strin
   return isSafeObjectKey(key) ? key : null;
 }
 
+// Unlike the mutating helpers above, an unconfigured backend reads as "object
+// not found" (null) so the GET route serves a 404 instead of an error.
 export async function getObjectResponse(key: string): Promise<Response | null> {
   assertSafeKey(key);
-  const boundBucket = await bucket();
-  if (boundBucket) {
-    const object = await boundBucket.get(key);
-    if (!object) return null;
-    return new Response(await object.arrayBuffer(), {
-      headers: storedObjectHeaders({
-        "Content-Type": object.httpMetadata?.contentType || "application/octet-stream",
-        "Cache-Control": "public, max-age=31536000, immutable",
-      }),
-    });
-  }
-
-  if (canUseLocalStorage()) {
-    const object = await localGet(key);
-    if (!object) return null;
-    return new Response(new Uint8Array(object.bytes), {
-      headers: storedObjectHeaders({
-        "Content-Type": object.contentType,
-        "Cache-Control": "public, max-age=31536000, immutable",
-      }),
-    });
-  }
-
-  return null;
+  const object = await (await getBackend())?.get(key);
+  if (!object) return null;
+  return new Response(object.bytes, {
+    headers: storedObjectHeaders({
+      "Content-Type": object.contentType,
+      "Cache-Control": "public, max-age=31536000, immutable",
+    }),
+  });
 }
