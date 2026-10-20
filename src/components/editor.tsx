@@ -121,6 +121,7 @@ export function Editor() {
           void share.openBoardEntry(entry);
         }}
         onRemoveBoard={(entry) => void share.removeBoard(entry)}
+        onRedoSetup={demo ? undefined : () => editor.setNeedsSetup(true)}
       />
 
       {editor.needsSetup && owner.status !== "loading" && !demo && <SetupCards onComplete={() => editor.setNeedsSetup(false)} />}

@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { EMPTY_PROFILE_DRAFT, saveProfileDraft } from "@/lib/store";
+import { readProfileDraft, saveProfileDraft } from "@/lib/store";
 import { ProfileFields } from "@/components/profile-fields";
 import { OwnerPanel } from "@/components/owner-panel";
 import { useOwner } from "@/lib/owner-client";
 
 export function SetupCards({ onComplete }: { onComplete: () => void }) {
-  const [profile, setProfile] = useState(EMPTY_PROFILE_DRAFT);
+  const [profile, setProfile] = useState(readProfileDraft);
   const [closing, setClosing] = useState(false);
   const owner = useOwner();
 

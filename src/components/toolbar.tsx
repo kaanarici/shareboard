@@ -61,6 +61,7 @@ export function Toolbar({
   onNewBoard,
   onOpenBoard,
   onRemoveBoard,
+  onRedoSetup,
 }: {
   hasItems: boolean;
   locked?: boolean;
@@ -76,6 +77,7 @@ export function Toolbar({
   onNewBoard: () => void;
   onOpenBoard: (entry: BoardListEntry) => void;
   onRemoveBoard: (entry: BoardListEntry) => void;
+  onRedoSetup?: () => void;
 }) {
   const [openMenu, setOpenMenu] = useState<"settings" | "boards" | null>(null);
   const settingsOpen = openMenu === "settings";
@@ -219,6 +221,18 @@ export function Toolbar({
             >
               Save
             </Button>
+            {onRedoSetup ? (
+              <button
+                type="button"
+                className="owner-button owner-button--quiet w-full justify-center"
+                onClick={() => {
+                  closeMenu();
+                  onRedoSetup();
+                }}
+              >
+                Run setup again
+              </button>
+            ) : null}
           </ToolbarMenu>
 
           <ToolbarMenu
