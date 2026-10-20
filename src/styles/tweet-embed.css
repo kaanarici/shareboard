@@ -1,0 +1,23 @@
+.tweet-embed-container {
+  color-scheme: light;
+}
+
+.tweet-embed-container [data-theme] {
+  --tweet-container-margin: 0 !important;
+}
+
+.tweet-embed-container > div {
+  margin: 0 !important;
+}
+
+.tweet-embed-container article {
+  margin: 0 !important;
+  max-width: none !important;
+}
+
+.tweet-embed-container .react-tweet-theme {
+  border: none !important;
+  border-radius: 0 !important;
+  margin: 0 !important;
+  min-height: 100% !important;
+}

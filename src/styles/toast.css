@@ -1,0 +1,79 @@
+[data-sonner-toaster] {
+  --width: min(400px, calc(100vw - 2rem)) !important;
+}
+[data-sonner-toaster] [data-sonner-toast] {
+  width: fit-content !important;
+  min-width: 0 !important;
+  max-width: min(400px, calc(100vw - 2rem)) !important;
+  --border-radius: 22px;
+  border-radius: 22px !important;
+  height: auto;
+  min-height: 44px;
+  box-sizing: border-box;
+  transition:
+    transform 220ms cubic-bezier(0.2, 0, 0, 1),
+    opacity 220ms cubic-bezier(0.2, 0, 0, 1),
+    height 220ms cubic-bezier(0.2, 0, 0, 1),
+    box-shadow 180ms cubic-bezier(0.2, 0, 0, 1) !important;
+}
+[data-sonner-toaster] [data-sonner-toast] [data-content] {
+  text-wrap: pretty;
+}
+[data-sonner-toaster] [data-sonner-toast][data-styled="true"] {
+  padding: 10px 16px !important;
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-mounted="true"] [data-icon] > * {
+  animation: sb-toast-icon-in 300ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+@keyframes sb-toast-icon-in {
+  from {
+    opacity: 0;
+    scale: 0.25;
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+    filter: blur(0);
+  }
+}
+
+[data-sonner-toaster] [data-sonner-toast][data-removed="true"][data-front="true"][data-swipe-out="false"] {
+  --y: translateY(8px) !important;
+  opacity: 0;
+  transition:
+    transform 150ms ease-in,
+    opacity 150ms ease-in !important;
+}
+
+[data-sonner-toaster] [data-sonner-toast].sb-toast--pulse-a {
+  animation: sb-toast-pulse-a 320ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+[data-sonner-toaster] [data-sonner-toast].sb-toast--pulse-b {
+  animation: sb-toast-pulse-b 320ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+@keyframes sb-toast-pulse-a {
+  35% {
+    scale: 1.035;
+  }
+}
+
+@keyframes sb-toast-pulse-b {
+  35% {
+    scale: 1.035;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-sonner-toaster] [data-sonner-toast],
+  [data-sonner-toaster] [data-sonner-toast].sb-toast--pulse-a,
+  [data-sonner-toaster] [data-sonner-toast].sb-toast--pulse-b,
+  [data-sonner-toaster] [data-sonner-toast][data-mounted="true"] [data-icon] > * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

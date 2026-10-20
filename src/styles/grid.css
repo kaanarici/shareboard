@@ -1,0 +1,242 @@
+.react-grid-item.react-draggable-dragging,
+.react-grid-item.resizing {
+  z-index: 100 !important;
+  cursor: grabbing;
+}
+.react-grid-item.react-draggable:not(.react-draggable-dragging):not(.resizing) {
+  cursor: grab;
+}
+.react-grid-item.react-draggable-dragging {
+  box-shadow:
+    0 20px 40px -12px rgba(0, 0, 0, 0.18),
+    0 2px 6px rgba(0, 0, 0, 0.06) !important;
+}
+
+body.grid-interacting .react-grid-item:not(.react-draggable-dragging):not(.resizing) {
+  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1) !important;
+}
+
+.react-grid-item.react-grid-placeholder {
+  background: transparent !important;
+  border: 1px dashed rgba(0, 0, 0, 0.18) !important;
+  border-radius: 12px !important;
+  opacity: 1 !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1) !important;
+}
+
+body.grid-resizing .react-grid-item.react-grid-placeholder {
+  z-index: 101 !important;
+  background: rgba(0, 0, 0, 0.06) !important;
+  border-color: rgba(0, 0, 0, 0.32) !important;
+}
+
+.react-grid-item {
+  user-select: none;
+}
+.react-grid-item img {
+  -webkit-user-drag: none;
+}
+.react-grid-item [data-editing="true"],
+.react-grid-item [data-editing="true"] * {
+  user-select: text;
+}
+
+.react-grid-item.react-draggable-dragging,
+.react-grid-item.resizing {
+  user-select: none !important;
+}
+body.grid-interacting {
+  user-select: none !important;
+}
+
+body.grid-interacting .react-grid-item [contenteditable],
+body.grid-interacting .react-grid-item .ProseMirror,
+body.grid-interacting .react-grid-item .tiptap {
+  pointer-events: none !important;
+  caret-color: transparent !important;
+}
+body.grid-interacting .react-grid-item .overflow-auto,
+body.grid-interacting .react-grid-item .overflow-y-auto {
+  overflow: hidden !important;
+}
+
+body.grid-interacting .grid-interacting-fade {
+  opacity: 0.25 !important;
+  filter: grayscale(1);
+}
+
+.react-grid-item [data-editing] .ProseMirror,
+.react-grid-item [data-editing] .ProseMirror * {
+  cursor: grab;
+}
+.react-grid-item [data-editing="true"] .ProseMirror,
+.react-grid-item [data-editing="true"] .ProseMirror * {
+  cursor: auto;
+}
+.react-grid-item [data-editing="true"] .ProseMirror {
+  cursor: text;
+}
+body.grid-interacting .react-grid-item [data-editing] .ProseMirror,
+body.grid-interacting .react-grid-item [data-editing] .ProseMirror * {
+  cursor: grabbing !important;
+}
+
+.card-close-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 999px;
+  background-color: rgba(255, 255, 255, 0.86);
+  color: rgba(10, 10, 10, 0.62);
+  cursor: pointer;
+  backdrop-filter: blur(12px) saturate(1.1);
+  -webkit-backdrop-filter: blur(12px) saturate(1.1);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    0 4px 12px -6px rgba(0, 0, 0, 0.16);
+  transition: background-color 0.12s ease, color 0.12s ease,
+    border-color 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease;
+}
+
+.card-close-btn:hover {
+  background-color: #ffffff;
+  color: var(--foreground);
+  border-color: rgba(0, 0, 0, 0.12);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.07),
+    0 6px 16px -6px rgba(0, 0, 0, 0.2);
+}
+
+.card-close-btn:active {
+  transform: scale(0.96);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    0 2px 6px -3px rgba(0, 0, 0, 0.16);
+}
+
+.card-close-btn::before {
+  content: "";
+  position: absolute;
+  inset: -7px;
+  border-radius: 999px;
+}
+.card-close-btn--touch::before {
+  inset: -5px;
+}
+
+.card-close-icon {
+  width: 14px;
+  height: 14px;
+  transform: translate(0.2px, -0.2px);
+}
+
+.card-close-btn--touch {
+  width: 30px;
+  height: 30px;
+}
+
+.card-close-btn--touch .card-close-icon {
+  width: 15px;
+  height: 15px;
+}
+
+.react-grid-item .react-resizable-handle,
+.react-resizable-handle {
+  background-image: none !important;
+}
+
+.react-grid-item .react-resizable-handle {
+  z-index: 40 !important;
+  width: 26px !important;
+  height: 26px !important;
+  pointer-events: auto !important;
+  opacity: 1 !important;
+  transform: none !important;
+}
+
+.react-grid-item .react-resizable-handle::after {
+  content: "";
+  display: block !important;
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  border: 0 solid rgba(10, 10, 10, 0.3);
+  opacity: 0;
+  transform: scale(0.7);
+  transition: opacity 180ms cubic-bezier(0.2, 0, 0, 1), transform 180ms cubic-bezier(0.2, 0, 0, 1),
+    border-color 180ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.react-grid-item .react-resizable-handle-se::after {
+  right: 6px;
+  bottom: 6px;
+  border-right-width: 2px;
+  border-bottom-width: 2px;
+  border-radius: 0 0 6px 0;
+  transform-origin: bottom right;
+}
+
+.react-grid-item .react-resizable-handle-sw::after {
+  left: 6px;
+  bottom: 6px;
+  border-left-width: 2px;
+  border-bottom-width: 2px;
+  border-radius: 0 0 0 6px;
+  transform-origin: bottom left;
+}
+
+.react-grid-item .react-resizable-handle-ne::after {
+  right: 6px;
+  top: 6px;
+  border-right-width: 2px;
+  border-top-width: 2px;
+  border-radius: 0 6px 0 0;
+  transform-origin: top right;
+}
+
+.react-grid-item .react-resizable-handle-nw::after {
+  left: 6px;
+  top: 6px;
+  border-left-width: 2px;
+  border-top-width: 2px;
+  border-radius: 6px 0 0 0;
+  transform-origin: top left;
+}
+
+.react-grid-item .react-resizable-handle-e::after,
+.react-grid-item .react-resizable-handle-w::after,
+.react-grid-item .react-resizable-handle-s::after,
+.react-grid-item .react-resizable-handle-n::after {
+  content: none;
+}
+
+.react-grid-item:hover .react-resizable-handle-se::after,
+.react-grid-item[data-selected="true"] .react-resizable-handle-se::after,
+.react-grid-item .react-resizable-handle:hover::after {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.react-grid-item .react-resizable-handle:hover::after {
+  border-color: rgba(10, 10, 10, 0.55);
+}
+
+body.grid-interacting .react-grid-item .react-resizable-handle::after {
+  opacity: 0 !important;
+}
+
+.react-grid-item .react-resizable-handle.react-resizable-handle-se { cursor: se-resize !important; }
+.react-grid-item .react-resizable-handle.react-resizable-handle-sw { cursor: sw-resize !important; }
+.react-grid-item .react-resizable-handle.react-resizable-handle-ne { cursor: ne-resize !important; }
+.react-grid-item .react-resizable-handle.react-resizable-handle-nw { cursor: nw-resize !important; }
+.react-grid-item .react-resizable-handle.react-resizable-handle-e,
+.react-grid-item .react-resizable-handle.react-resizable-handle-w { cursor: ew-resize !important; }
+.react-grid-item .react-resizable-handle.react-resizable-handle-s,
+.react-grid-item .react-resizable-handle.react-resizable-handle-n { cursor: ns-resize !important; }
