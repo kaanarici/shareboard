@@ -99,7 +99,7 @@ export function useEditorBoard() {
 
   const seed = useCallback(async (): Promise<DraftSnapshot | null> => {
     if (!isDemo(await loadOwner())) return null;
-    return { pages: [demoBoardPage()], boardOrigin: { kind: "draft" }, boardId: null };
+    return { pages: [demoBoardPage(window.location.origin)], boardOrigin: { kind: "draft" }, boardId: null };
   }, []);
 
   const { mounted } = useEditorPersistence({ draft, draftRef, restore: commit, seed });

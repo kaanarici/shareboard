@@ -6,7 +6,7 @@ import { LG_COLS } from "@/lib/tile-specs";
 
 describe("demo board", () => {
   test("every item survives sanitizing and has a layout on both grids", () => {
-    const page = demoBoardPage();
+    const page = demoBoardPage("https://shareboard.test");
     expect(page.items.map((item) => sanitizeStoredItem(item))).toEqual(page.items);
     const ids = page.items.map((item) => item.id).sort();
     const layouts = sanitizeLayouts(page.layouts, page.items);
@@ -15,7 +15,7 @@ describe("demo board", () => {
   });
 
   test("the desktop layout fits the grid without overlaps", () => {
-    const { lg } = demoBoardPage().layouts;
+    const { lg } = demoBoardPage("https://shareboard.test").layouts;
     for (const layout of lg) expect(layout.x + layout.w).toBeLessThanOrEqual(LG_COLS);
     for (const [index, a] of lg.entries()) {
       for (const b of lg.slice(index + 1)) expect(rectsOverlap(a, b)).toBe(false);

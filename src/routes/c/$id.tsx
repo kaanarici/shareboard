@@ -3,6 +3,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
 import { boardAsJson } from "@/lib/canvas-sanitize";
+import { SITE_DESCRIPTION } from "@/lib/site-meta";
 import { isRecord, parseJson, readResponseJson, readString } from "@/lib/json";
 import { validatePageSearch } from "@/lib/pagination";
 import { isLockedBoardStub, type BoardFetchResponse } from "@/lib/types";
@@ -29,15 +30,16 @@ const getSharedBoard = createServerFn({ method: "GET" })
     const { readShare } = await import("@/lib/server/share-store");
     const id = keepShareId(data.id);
     const request = getRequest();
-    if (!id || !(await takeRateLimit("publicRead", clientIp(request)))) return null;
+    const fallbackImage = new URL("/og.png", request.url).toString();
+    if (!id || !(await takeRateLimit("publicRead", clientIp(request)))) return { previewUrl: fallbackImage };
     const record = await readShare(id).catch(() => null);
-    if (!record) return null;
+    if (!record) return { previewUrl: fallbackImage };
     if (record.kind === "locked") {
-      return { title: "Shareboard", board: JSON.stringify({ id, encrypted: true, locked: true }) };
+      return { title: "Shareboard", previewUrl: fallbackImage, board: JSON.stringify({ id, encrypted: true, locked: true }) };
     }
     const previewUrl = record.board.previewUrl
       ? new URL(record.board.previewUrl, request.url).toString()
-      : undefined;
+      : fallbackImage;
     return { title: `${record.board.author}'s board`, previewUrl, board: JSON.stringify(boardAsJson(record.board)) };
   });
 
@@ -55,6 +57,7 @@ export const Route = createFileRoute("/c/$id")({
       { title },
       { name: "robots", content: "noindex,nofollow" },
       { property: "og:title", content: title },
+      { property: "og:description", content: SITE_DESCRIPTION },
       { property: "og:type", content: "website" },
     ];
     if (previewUrl) {

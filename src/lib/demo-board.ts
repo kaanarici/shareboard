@@ -14,15 +14,15 @@ function link(url: string, ogData: OGData): BoardItem {
   return { id: nanoid(8), type: "url", url, platform: "website", ogData };
 }
 
-function project(url: string, title: string, description: string, preview: string): BoardItem {
-  return link(url, { title, description, image: `${SITE}/previews/${preview}.webp` });
+function project(url: string, title: string, description: string, image: string): BoardItem {
+  return link(url, { title, description, image });
 }
 
 function at(item: BoardItem, x: number, y: number, w: number, h: number): Placed {
   return { item, x, y, w, h };
 }
 
-export function demoBoardPage(): BoardPage {
+export function demoBoardPage(origin: string): BoardPage {
   const placed = [
     at(
       note("<h2>Kaan Aricioglu</h2><p>I do econ at NYU and I'm the on-call AI guy at Gumshoe Capital, a hedge fund. Grew up in Istanbul, live in Manhattan.</p>"),
@@ -30,12 +30,12 @@ export function demoBoardPage(): BoardPage {
     ),
     at(note("<p>x.com/kaanaricioglu<br>github.com/kaanarici<br>linkedin.com/in/kaanarici1</p>"), 0, 7, 6, 5),
     at(note("<p>Paste a link, note, or image anywhere. Drag things around. Share sends the board as one link.</p>"), 0, 12, 6, 6),
-    at(link(`${SITE}/`, { title: "Kaan Aricioglu", description: "My website.", image: `${SITE}/nyc-istanbul.webp`, siteName: "kaanarici.com" }), 6, 0, 6, 9),
-    at(project("https://github.com/kaanarici/shareboard", "Shareboard", "This canvas. Open source, deploy your own.", "shareboard"), 6, 9, 6, 9),
-    at(project("https://fundcensus.com/", "Fund Census", "SEC data on advisers, private funds, and owners.", "fundcensus"), 12, 0, 6, 9),
-    at(project("https://github.com/kaanarici/docsnap", "DocSnap", "Docs-to-Markdown CLI for coding agents.", "docsnap"), 12, 9, 6, 9),
-    at(project("https://github.com/kaanarici/VoxelLab", "VoxelLab", "Local-first research imaging viewer.", "voxellab"), 18, 0, 6, 9),
-    at(project("https://github.com/kaanarici/rag-core", "rag-core", "Embeddable retrieval engine.", "rag-core"), 18, 9, 6, 9),
+    at(link(`${SITE}/`, { title: "Kaan Aricioglu", description: "My website.", image: `${SITE}/og`, siteName: "kaanarici.com" }), 6, 0, 6, 9),
+    at(project("https://github.com/kaanarici/shareboard", "Shareboard", "This canvas. Open source, deploy your own.", `${origin}/demo/shareboard.webp`), 6, 9, 6, 9),
+    at(project("https://fundcensus.com/", "Fund Census", "SEC data on advisers, private funds, and owners.", `${SITE}/previews/fundcensus.webp`), 12, 0, 6, 9),
+    at(project("https://github.com/kaanarici/docsnap", "DocSnap", "Docs-to-Markdown CLI for coding agents.", `${origin}/demo/docsnap.webp`), 12, 9, 6, 9),
+    at(project("https://github.com/kaanarici/VoxelLab", "VoxelLab", "Local-first research imaging viewer.", `${origin}/demo/voxellab.webp`), 18, 0, 6, 9),
+    at(project("https://github.com/kaanarici/rag-core", "rag-core", "Embeddable retrieval engine.", `${origin}/demo/rag-core.webp`), 18, 9, 6, 9),
   ];
   const page = packedPage(placed.map(({ item }) => item), 0);
   return { ...page, layouts: { ...page.layouts, lg: placed.map(({ item, x, y, w, h }) => ({ i: item.id, x, y, w, h })) } };
