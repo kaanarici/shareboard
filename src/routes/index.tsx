@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Editor } from "@/components/editor";
+import { getSiteOrigin, siteMeta } from "@/lib/site-meta";
 import { isRecord } from "@/lib/json";
 import { shareParam, type EditorSearch } from "@/lib/intake";
 import { readPageParam } from "@/lib/pagination";
@@ -29,6 +30,7 @@ function readSearchParam(value: unknown): string | undefined {
 
 export const Route = createFileRoute("/")({
   validateSearch: validateEditorSearch,
-  head: () => ({ meta: [{ title: "Editor · Shareboard" }] }),
+  loader: () => getSiteOrigin().catch(() => undefined),
+  head: ({ loaderData }) => ({ meta: [{ title: "Shareboard" }, ...siteMeta(loaderData)] }),
   component: Editor,
 });

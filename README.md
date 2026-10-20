@@ -1,10 +1,27 @@
-# Shareboard
+<p align="center">
+  <img src=".github/logo.png" width="96" alt="">
+</p>
 
-A canvas for links, notes, and images. Paste things in, drag them around, and share the board as one link.
+<h1 align="center">Shareboard</h1>
+
+<p align="center">
+  A canvas for links, notes, and images.<br>
+  Paste things in, drag them around, and share the board as one link.
+</p>
+
+<p align="center">
+  <a href="https://shareboard.kaan-aricioglu.workers.dev/"><b>Try the demo</b></a>
+  ·
+  <a href="#deploy">Deploy your own</a>
+  ·
+  <a href="LICENSE">MIT</a>
+</p>
+
+<p align="center">
+  <img src=".github/screenshot.webp" alt="A Shareboard with notes and link cards arranged in four columns">
+</p>
 
 Self-host it on Cloudflare: published boards live in your own R2 bucket, drafts stay in your browser, and you sign in with a passkey. No accounts.
-
-**[Try the demo](https://shareboard.kaan-aricioglu.workers.dev/)**
 
 ## Features
 

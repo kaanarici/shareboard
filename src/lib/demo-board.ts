@@ -30,7 +30,7 @@ export function demoBoardPage(): BoardPage {
     ),
     at(note("<p>x.com/kaanaricioglu<br>github.com/kaanarici<br>linkedin.com/in/kaanarici1</p>"), 0, 7, 6, 5),
     at(note("<p>Paste a link, note, or image anywhere. Drag things around. Share sends the board as one link.</p>"), 0, 12, 6, 6),
-    at(link(`${SITE}/`, { title: "Kaan Aricioglu", description: "My website.", image: `${SITE}/og`, siteName: "kaanarici.com" }), 6, 0, 6, 9),
+    at(link(`${SITE}/`, { title: "Kaan Aricioglu", description: "My website.", image: `${SITE}/nyc-istanbul.webp`, siteName: "kaanarici.com" }), 6, 0, 6, 9),
     at(project("https://github.com/kaanarici/shareboard", "Shareboard", "This canvas. Open source, deploy your own.", "shareboard"), 6, 9, 6, 9),
     at(project("https://fundcensus.com/", "Fund Census", "SEC data on advisers, private funds, and owners.", "fundcensus"), 12, 0, 6, 9),
     at(project("https://github.com/kaanarici/docsnap", "DocSnap", "Docs-to-Markdown CLI for coding agents.", "docsnap"), 12, 9, 6, 9),

@@ -4,6 +4,7 @@ import { SharedBoardStatus } from "@/components/shared-board-status";
 import { decodeTinyShare, TINY_SHARE_PARAM } from "@/lib/tiny-share";
 import { validatePageSearch } from "@/lib/pagination";
 import type { Board } from "@/lib/types";
+import { getSiteOrigin, siteMeta } from "@/lib/site-meta";
 import {
   SHARED_BOARD_LOADING_LABEL,
   SHARED_BOARD_NOT_FOUND_LABEL,
@@ -19,11 +20,9 @@ async function loadTinyBoard(): Promise<Board | null> {
 
 export const Route = createFileRoute("/s")({
   validateSearch: validatePageSearch,
-  head: () => ({
-    meta: [
-      { title: "Shareboard" },
-      { name: "robots", content: "noindex,nofollow" },
-    ],
+  loader: () => getSiteOrigin().catch(() => undefined),
+  head: ({ loaderData }) => ({
+    meta: [{ title: "Shareboard" }, { name: "robots", content: "noindex,nofollow" }, ...siteMeta(loaderData)],
   }),
   component: TinySharedPage,
 });

@@ -3,6 +3,7 @@ import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import "../styles/globals.css";
 import { Providers } from "@/components/providers";
+import { SITE_DESCRIPTION } from "@/lib/site-meta";
 
 export const Route = createRootRoute({
   head: () => ({
@@ -15,7 +16,7 @@ export const Route = createRootRoute({
       { name: "theme-color", content: "#f5f5f0" },
       { name: "referrer", content: "no-referrer" },
       { title: "Shareboard" },
-      { name: "description", content: "A canvas for links, notes, and images. Share the whole board as one link." },
+      { name: "description", content: SITE_DESCRIPTION },
       { name: "mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-title", content: "Shareboard" },
